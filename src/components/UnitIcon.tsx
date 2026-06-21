@@ -6,12 +6,16 @@ import React from "react";
  */
 
 const paths: Record<string, React.ReactNode> = {
-  // Foot soldier — helmet + rifle on the shoulder.
+  // Infantry — plain stick figure: circle head, body, two arms, two legs.
   infantry: (
-    <>
-      <path d="M40 12a8 8 0 0 0-16 0 8 8 0 0 0 4 7v3l-12 6v22h8V40h2v18h12V40h2v18h8V34l-10-5v-3a8 8 0 0 0 2-14Z" />
-      <rect x="34" y="6" width="22" height="3" rx="1.5" transform="rotate(34 34 6)" />
-    </>
+    <g stroke="currentColor" fill="none" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="32" cy="15" r="6.5" fill="currentColor" stroke="none" />
+      <path d="M32 21.5V42" />
+      <path d="M32 27 22 37" />
+      <path d="M32 27 42 37" />
+      <path d="M32 42 23 56" />
+      <path d="M32 42 41 56" />
+    </g>
   ),
   // Field artillery — howitzer with a long angled barrel and two wheels.
   artillery: (

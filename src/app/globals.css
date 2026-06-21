@@ -95,3 +95,19 @@ body {
 .btn-primary:hover {
   filter: brightness(1.08);
 }
+
+/* ── Battle simulator animations ── */
+@keyframes hitFlash {
+  0%   { opacity: 0; transform: translate(-50%, 14px) scale(0.6); }
+  18%  { opacity: 1; transform: translate(-50%, -2px) scale(1.18); }
+  35%  { opacity: 1; transform: translate(-50%, -8px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -54px) scale(0.95); }
+}
+.hit-flash {
+  animation: hitFlash 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes unitDie {
+  0%   { transform: translateY(0) scale(1) rotate(0); }
+  100% { transform: translateY(10px) scale(0.78) rotate(-8deg); }
+}
+.unit-dead { animation: unitDie 0.5s ease forwards; }

@@ -12,6 +12,7 @@ import {
   type Stack,
   type BattleState,
   type BattleEvent,
+  type BattleUnit,
 } from "@/lib/battle";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29,7 +30,9 @@ async function getDiceBox(): Promise<any> {
       container: "#battle-dice-stage",
       assetPath: "/assets/dice-box/",
       theme: "default",
-      scale: 8,
+      scale: 10, // higher = bigger dice in this build; keep clearance from edges
+      enableShadows: true,
+      lightIntensity: 1.1,
     });
     await box.init();
     boxSingleton = box;
@@ -106,37 +109,61 @@ function ForceBuilder({
   );
 }
 
-function Roster({ side, units }: { side: Side; units: { key: string; count: number }[] }) {
+// A single unit token with a health bar; fades & drops when destroyed.
+function UnitToken({ unit, side }: { unit: BattleUnit; side: Side }) {
   const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
-  const total = units.reduce((s, u) => s + u.count, 0);
+  const dead = unit.hp <= 0;
   return (
-    <div className="panel p-3 flex-1 min-w-0">
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-semibold uppercase tracking-wider text-xs" style={{ color: tint }}>
-          {side === "attacker" ? "Attacker" : "Defender"}
-        </span>
-        <span className="label">{total} left</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {total === 0 && <span className="label">— wiped out —</span>}
-        {units.map((u) => (
-          <div
-            key={u.key}
-            className="flex items-center gap-1 rounded px-1.5 py-1"
-            style={{ background: "color-mix(in srgb, " + tint + " 14%, transparent)", color: tint }}
-            title={UNITS_BY_KEY[u.key]?.name}
-          >
-            <UnitIcon unitKey={u.key} size={22} />
-            <span className="stat text-xs">×{u.count}</span>
-          </div>
+    <div
+      className={`flex flex-col items-center ${dead ? "unit-dead" : ""}`}
+      style={{
+        width: 30,
+        transition: "opacity 0.5s ease, filter 0.5s ease",
+        opacity: dead ? 0.28 : 1,
+        filter: dead ? "grayscale(1)" : "none",
+      }}
+      title={`${UNITS_BY_KEY[unit.key]?.name}${dead ? " (destroyed)" : ""}`}
+    >
+      <span style={{ color: tint, lineHeight: 0 }}>
+        <UnitIcon unitKey={unit.key} size={26} />
+      </span>
+      <div className="flex gap-px mt-0.5" aria-hidden>
+        {Array.from({ length: unit.maxHp }).map((_, i) => (
+          <span
+            key={i}
+            style={{
+              width: unit.maxHp > 1 ? 11 : 18,
+              height: 3,
+              borderRadius: 1,
+              background: i < unit.hp ? "var(--good)" : "rgba(255,255,255,0.16)",
+              transition: "background 0.5s ease",
+            }}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function survivorList(stack: Stack): { key: string; count: number }[] {
-  return SELECTABLE.filter((u) => (stack[u.key] ?? 0) > 0).map((u) => ({ key: u.key, count: stack[u.key] }));
+// One side's battle line — all units (survivors and wrecks) lined up.
+function BattleLine({ side, units }: { side: Side; units: BattleUnit[] }) {
+  const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
+  const living = units.filter((u) => u.hp > 0).length;
+  return (
+    <div className="panel p-2">
+      <div className="flex items-center justify-center gap-2 mb-1.5">
+        <span className="uppercase tracking-wider text-[11px] font-semibold" style={{ color: tint }}>
+          {side === "attacker" ? "⚔ Attacker" : "🛡 Defender"}
+        </span>
+        <span className="label text-[11px]">{living} standing</span>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {units.map((u) => (
+          <UnitToken key={u.uid} unit={u} side={side} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function EventRow({ ev }: { ev: BattleEvent }) {
@@ -200,8 +227,10 @@ export default function BattleStage({
   const [state, setState] = useState<BattleState | null>(null);
   const [rolling, setRolling] = useState(false);
   const [diceReady, setDiceReady] = useState(false);
+  const [hitFlash, setHitFlash] = useState<{ n: number; side: Side; key: number } | null>(null);
 
   const boxRef = useRef<any>(null);
+  const flashKey = useRef(0);
 
   // Init once on mount. The dice stage div is mounted for the whole lifetime of
   // this component (see render), so the box's canvas never detaches between the
@@ -281,6 +310,12 @@ export default function BattleStage({
       if (values.length !== step.dice.length) {
         values = step.dice.map(() => 1 + Math.floor(Math.random() * 6));
       }
+      const hits = step.dice.reduce((h, d, i) => h + ((values[i] ?? 9) <= d.hitOn ? 1 : 0), 0);
+      if (hits > 0) {
+        flashKey.current += 1;
+        setHitFlash({ n: hits, side: step.side ?? "attacker", key: flashKey.current });
+        window.setTimeout(() => setHitFlash(null), 1500);
+      }
       setState(resolveRoll(state, values));
     } finally {
       setRolling(false);
@@ -298,40 +333,34 @@ export default function BattleStage({
   }
 
   // ── Unified layout: the dice stage stays mounted across setup & battle. ──
-  const atkSurvivors = state ? survivorList(summarize(state).attackerSurvivors) : [];
-  const defSurvivors = state ? survivorList(summarize(state).defenderSurvivors) : [];
-
   return (
     <div className="space-y-4">
-      {/* Top: force builders (setup) or live rosters (battle) */}
-      {mode === "setup" ? (
+      {/* Setup: force builders */}
+      {mode === "setup" && (
         <div className="grid gap-4 md:grid-cols-2">
           <ForceBuilder side="attacker" stack={attackerStack} onChange={(k, d) => changeStack("attacker", k, d)} />
           <ForceBuilder side="defender" stack={defenderStack} onChange={(k, d) => changeStack("defender", k, d)} />
         </div>
-      ) : (
-        <div className="flex gap-3">
-          <Roster side="attacker" units={atkSurvivors} />
-          <Roster side="defender" units={defSurvivors} />
-        </div>
       )}
 
-      {/* Dice theater — ALWAYS mounted so the dice-box canvas never detaches */}
-      <div className="relative">
-        <div
-          id="battle-dice-stage"
-          style={{
-            position: "relative",
-            width: "100%",
-            height: 320,
-            background: "radial-gradient(120% 100% at 50% 0%, #2b3a2a 0%, #1b2420 45%, #11160f 100%)",
-          }}
-          className="rounded-lg overflow-hidden"
-        />
-        <div
-          className="absolute inset-0 rounded-lg pointer-events-none"
-          style={{ boxShadow: "inset 0 0 80px rgba(0,0,0,0.55)", border: "1px solid var(--border)" }}
-        />
+      {/* Attacker line (battle mode) */}
+      {mode === "battle" && state && <BattleLine side="attacker" units={state.attacker} />}
+
+      {/* Battle theater — the dice surface fills the whole box (no inner frame),
+          and the dice-box canvas is ALWAYS mounted so it never detaches. */}
+      <div
+        className="relative rounded-lg overflow-hidden mx-auto"
+        style={{
+          width: "min(440px, 100%)",
+          height: 400,
+          background: "radial-gradient(120% 120% at 50% 0%, #344a34 0%, #1d2a1d 50%, #121a12 100%)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        {/* dice canvas fills the battlefield */}
+        <div id="battle-dice-stage" className="absolute inset-0" />
+        <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 70px rgba(0,0,0,0.5)" }} />
+
         {!diceReady && (
           <div className="absolute inset-0 flex items-center justify-center label">Loading 3D dice…</div>
         )}
@@ -340,7 +369,25 @@ export default function BattleStage({
             Muster your forces, then begin the battle.
           </div>
         )}
+
+        {hitFlash && (
+          <div
+            key={hitFlash.key}
+            className="hit-flash absolute left-1/2 top-1/2 pointer-events-none font-extrabold"
+            style={{
+              color: hitFlash.side === "defender" ? DEFENDER_TINT : ATTACKER_TINT,
+              fontSize: 34,
+              letterSpacing: 1,
+              textShadow: "0 2px 12px rgba(0,0,0,0.85)",
+            }}
+          >
+            {hitFlash.n} HIT{hitFlash.n === 1 ? "" : "S"}!
+          </div>
+        )}
       </div>
+
+      {/* Defender line (battle mode) */}
+      {mode === "battle" && state && <BattleLine side="defender" units={state.defender} />}
 
       {/* Setup controls */}
       {mode === "setup" && (
@@ -388,8 +435,8 @@ export default function BattleStage({
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <div><div className="label">Rounds</div><div className="stat text-xl">{summary.rounds}</div></div>
-            <div><div className="label">Attacker IPC lost</div><div className="stat text-xl" style={{ color: ATTACKER_TINT }}>{summary.attackerIpcLost}</div></div>
-            <div><div className="label">Defender IPC lost</div><div className="stat text-xl" style={{ color: DEFENDER_TINT }}>{summary.defenderIpcLost}</div></div>
+            <div><div className="label">Attacker IPC value lost</div><div className="stat text-xl" style={{ color: ATTACKER_TINT }}>{summary.attackerIpcLost}</div></div>
+            <div><div className="label">Defender IPC value lost</div><div className="stat text-xl" style={{ color: DEFENDER_TINT }}>{summary.defenderIpcLost}</div></div>
             <div><div className="label">Survivors</div><div className="stat text-xl">{totalUnits(summary.attackerSurvivors)} v {totalUnits(summary.defenderSurvivors)}</div></div>
           </div>
           <div className="flex gap-2 mt-4">
