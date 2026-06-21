@@ -1,4 +1,5 @@
 import BattleStage from "@/components/BattleStage";
+import BombingRaid from "@/components/BombingRaid";
 
 // Dev/verification route: the full battle simulator with no database dependency,
 // so it can be exercised with `next dev` even without a local Postgres.
@@ -13,6 +14,7 @@ export default function BattleDemoPage() {
         round by round with real dice.
       </p>
       <BattleStage />
+      <BombingRaid />
     </div>
   );
 }

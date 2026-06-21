@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { logBattleLosses } from "@/app/actions";
 import BattleStage from "./BattleStage";
+import BombingRaid from "./BombingRaid";
 import type { Stack } from "@/lib/battle";
 
 interface PowerOpt {
@@ -88,6 +89,8 @@ export default function CampaignBattle({
       {pending && <div className="label">Saving…</div>}
 
       <BattleStage onLogResult={handleLog} />
+
+      <BombingRaid />
     </div>
   );
 }
