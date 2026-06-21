@@ -14,10 +14,6 @@ export interface EditorPower {
   flag: string;
   coalition: Coalition;
 }
-interface IncomeState {
-  income: number;
-  objectiveBonus: number;
-}
 
 function num(v: string): number {
   const n = parseInt(v, 10);
@@ -31,43 +27,34 @@ export default function ProductionEditor({
   initial,
   startIncome,
   scenarioLabel,
+  includeResearch = true,
 }: {
   campaignId: string;
   roundNumber: number;
   powers: EditorPower[];
-  initial: Record<string, IncomeState>;
+  /** Current per-power income for this round (auto-seeded with scenario start). */
+  initial: Record<string, number>;
+  /** Scenario starting income per power, shown as a reference. */
   startIncome: Record<string, number>;
   scenarioLabel: string;
+  includeResearch?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
-  const [state, setState] = useState<Record<string, IncomeState>>(initial);
+  const [income, setIncome] = useState<Record<string, number>>(initial);
 
-  function patch(key: string, p: Partial<IncomeState>) {
-    setState((prev) => ({ ...prev, [key]: { ...prev[key], ...p } }));
+  function patch(key: string, value: number) {
+    setIncome((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
   }
 
-  function loadStartingIncomes() {
-    setState(
-      Object.fromEntries(
-        powers.map((p) => [p.key, { income: startIncome[p.key] ?? 0, objectiveBonus: 0 }]),
-      ),
-    );
-    setSaved(false);
-  }
-
-  // Live marker positions (income includes the National Objective bonus).
-  const boardPowers = powers.map((p) => ({
-    ...p,
-    income: (state[p.key]?.income ?? 0) + (state[p.key]?.objectiveBonus ?? 0),
-  }));
+  const boardPowers = powers.map((p) => ({ ...p, income: income[p.key] ?? 0 }));
 
   const totalOf = (c: Coalition) =>
     powers
       .filter((p) => p.coalition === c)
-      .reduce((s, p) => s + (state[p.key]?.income ?? 0) + (state[p.key]?.objectiveBonus ?? 0), 0);
+      .reduce((s, p) => s + (income[p.key] ?? 0), 0);
   const axisTotal = totalOf("AXIS");
   const alliesTotal = totalOf("ALLIES");
 
@@ -76,11 +63,7 @@ export default function ProductionEditor({
       await saveRoundIncome({
         campaignId,
         number: roundNumber,
-        entries: powers.map((p) => ({
-          nation: p.key,
-          income: state[p.key]?.income ?? 0,
-          objectiveBonus: state[p.key]?.objectiveBonus ?? 0,
-        })),
+        entries: powers.map((p) => ({ nation: p.key, income: income[p.key] ?? 0 })),
       });
       setSaved(true);
       router.refresh();
@@ -92,7 +75,7 @@ export default function ProductionEditor({
 
   return (
     <div className="space-y-4">
-      <ProductionBoard powers={boardPowers} />
+      <ProductionBoard powers={boardPowers} includeResearch={includeResearch} />
 
       {/* Live coalition totals */}
       <div className="panel p-3 flex items-center justify-between stat text-sm">
@@ -104,50 +87,43 @@ export default function ProductionEditor({
       {/* Editable income per nation */}
       <div className="panel p-4">
         <div className="flex items-center justify-between mb-3">
-          <span className="label">Set Income — Round {roundNumber}</span>
+          <span className="label">Income — Round {roundNumber}</span>
           <div className="flex items-center gap-3">
             {saved && <span className="label" style={{ color: "var(--good)" }}>✓ Saved</span>}
-            <button className="btn" onClick={loadStartingIncomes} disabled={pending} title={`Fill with ${scenarioLabel} scenario starting incomes`}>
-              Load {scenarioLabel} start
-            </button>
             <button className="btn btn-primary" onClick={save} disabled={pending}>
               {pending ? "Saving…" : "Save Production"}
             </button>
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {powers.map((p) => (
-            <div key={p.key} className="flex items-center gap-2 panel p-2">
-              <Image src={p.flag} alt="" width={22} height={15} className="rounded-sm border border-border shrink-0" />
-              <span className="font-semibold text-sm truncate flex-1" style={{ color: p.color }}>
-                {p.name}
-              </span>
-              <label className="flex items-center gap-1">
-                <span className="label">IPC</span>
-                <input
-                  className={numField}
-                  type="number"
-                  min={0}
-                  value={state[p.key]?.income ?? 0}
-                  onChange={(e) => patch(p.key, { income: num(e.target.value) })}
-                />
-              </label>
-              <label className="flex items-center gap-1" title="National Objective bonus">
-                <span className="label">+NO</span>
-                <input
-                  className={numField + " w-12"}
-                  type="number"
-                  min={0}
-                  value={state[p.key]?.objectiveBonus ?? 0}
-                  onChange={(e) => patch(p.key, { objectiveBonus: num(e.target.value) })}
-                />
-              </label>
-            </div>
-          ))}
+          {powers.map((p) => {
+            const start = startIncome[p.key] ?? 0;
+            return (
+              <div key={p.key} className="flex items-center gap-2 panel p-2">
+                <Image src={p.flag} alt="" width={22} height={15} className="rounded-sm border border-border shrink-0" />
+                <span className="font-semibold text-sm truncate flex-1" style={{ color: p.color }}>
+                  {p.name}
+                </span>
+                <span className="label whitespace-nowrap" title={`${scenarioLabel} scenario starting income`}>
+                  start {start}
+                </span>
+                <label className="flex items-center gap-1">
+                  <span className="label">IPC</span>
+                  <input
+                    className={numField}
+                    type="number"
+                    min={0}
+                    value={income[p.key] ?? 0}
+                    onChange={(e) => patch(p.key, num(e.target.value))}
+                  />
+                </label>
+              </div>
+            );
+          })}
         </div>
         <p className="label mt-3">
-          Enter each nation&apos;s territory income; <span className="stat">+NO</span> is the
-          National Objective bonus. Markers move as you type — click Save Production to record it.
+          Round 1 is pre-filled with the {scenarioLabel} scenario starting income.
+          Edit each nation&apos;s income — markers move as you type; click Save Production to record it.
         </p>
       </div>
     </div>

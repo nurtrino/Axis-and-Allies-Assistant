@@ -8,13 +8,11 @@ import { POWERS, SCENARIO_START_INCOME } from "@/lib/anniversary.config";
 export interface IncomeEntryInput {
   nation: string;
   income: number;
-  objectiveBonus: number;
 }
 
 /**
- * Set each nation's income (and National Objective bonus) for a round, from the
- * Production tool. Only touches income/objectiveBonus — other fields (losses,
- * attack power, etc.) are preserved.
+ * Set each nation's income for a round, from the Production tool. Only touches
+ * income — other fields (losses, attack power, etc.) are preserved.
  */
 export async function saveRoundIncome(input: {
   campaignId: string;
@@ -29,13 +27,8 @@ export async function saveRoundIncome(input: {
   for (const e of input.entries) {
     await prisma.nationEntry.upsert({
       where: { roundId_nation: { roundId: round.id, nation: e.nation } },
-      create: {
-        roundId: round.id,
-        nation: e.nation,
-        income: e.income,
-        objectiveBonus: e.objectiveBonus,
-      },
-      update: { income: e.income, objectiveBonus: e.objectiveBonus },
+      create: { roundId: round.id, nation: e.nation, income: e.income },
+      update: { income: e.income },
     });
   }
 
@@ -88,6 +81,7 @@ export interface CreateCampaignInput {
   scenario: string;
   trackingMode: string;
   victoryCityGoal: number;
+  includeResearch: boolean;
   players: NewCampaignPlayer[];
 }
 
@@ -110,6 +104,7 @@ export async function createCampaignWithPlayers(input: CreateCampaignInput) {
       scenario: input.scenario,
       trackingMode: input.trackingMode,
       victoryCityGoal: input.victoryCityGoal,
+      includeResearch: input.includeResearch,
     },
   });
 

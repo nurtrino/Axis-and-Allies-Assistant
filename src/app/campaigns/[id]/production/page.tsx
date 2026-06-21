@@ -35,7 +35,7 @@ export default async function ProductionPage({
   const incomeOf = (nation: string, roundNum: number) => {
     const r = rounds.find((x) => x.number === roundNum);
     const e = r?.entries.find((x) => x.nation === nation);
-    return (e?.income ?? 0) + (e?.objectiveBonus ?? 0);
+    return e?.income ?? 0;
   };
 
   const currentNum = rounds.length ? Math.max(...rounds.map((r) => r.number)) : 1;
@@ -75,7 +75,7 @@ export default async function ProductionPage({
     POWERS.map((p) => {
       const r = rounds.find((x) => x.number === currentNum);
       const e = r?.entries.find((x) => x.nation === p.key);
-      return [p.key, { income: e?.income ?? 0, objectiveBonus: e?.objectiveBonus ?? 0 }];
+      return [p.key, e?.income ?? 0];
     }),
   );
 
@@ -84,8 +84,8 @@ export default async function ProductionPage({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{campaign.name}</h1>
         <p className="label mt-1">
-          National Production Chart · Round {currentNum} · income includes
-          National Objective bonuses
+          National Production Chart · Round {currentNum} ·{" "}
+          {campaign.scenario === "Y1941" ? "1941" : "1942"} scenario
         </p>
       </div>
 
@@ -99,6 +99,7 @@ export default async function ProductionPage({
         initial={initialIncome}
         startIncome={SCENARIO_START_INCOME[campaign.scenario] ?? {}}
         scenarioLabel={campaign.scenario === "Y1941" ? "1941" : "1942"}
+        includeResearch={campaign.includeResearch}
       />
 
       <div className="label pt-1">Analytics</div>

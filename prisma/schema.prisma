@@ -25,6 +25,9 @@ model Campaign {
   trackingMode    String   @default("DETAILED")
   // Victory-city tokens needed to win: 13 (short) | 15 (standard) | 18 (full)
   victoryCityGoal Int      @default(15)
+  // Whether this game uses Research & Development. When false, the R&D
+  // breakthrough columns are hidden from the Production board.
+  includeResearch Boolean  @default(true)
   // "ACTIVE" | "VICTORY" | "DEFEAT"
   status          String   @default("ACTIVE")
   startDate       DateTime @default(now())

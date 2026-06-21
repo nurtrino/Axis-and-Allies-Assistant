@@ -3,7 +3,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { addRound } from "@/app/actions";
-import { POWERS, type Coalition } from "@/lib/anniversary.config";
+import { POWERS, SCENARIO_START_INCOME, type Coalition } from "@/lib/anniversary.config";
 import { computeRounds, lossesByNation } from "@/lib/analytics";
 import { resolvePlayers } from "@/lib/players";
 import { victoryHorizon } from "@/lib/intel";
@@ -255,6 +255,7 @@ export default async function WarRoom({
             const e = entryByNation.get(p.key);
             const owned = ownPowers.has(p.key);
             const controller = playerByPower.get(p.key);
+            const startIpc = SCENARIO_START_INCOME[campaign.scenario]?.[p.key] ?? 0;
             return (
               <div
                 key={p.key}
@@ -282,8 +283,9 @@ export default async function WarRoom({
                   <div className="label mt-1 truncate">cmdr: {controller}</div>
                 )}
                 <div className="grid grid-cols-2 gap-2 mt-3">
-                  <Stat label="IPC Income" value={String((e?.income ?? 0) + (e?.objectiveBonus ?? 0))} />
-                  <Stat label="Attack Power" value={String(e?.attackPower ?? 0)} accent="var(--accent)" />
+                  <Stat label="Start IPC" value={String(startIpc)} />
+                  <Stat label="IPC Income" value={String(e?.income ?? 0)} accent="var(--accent)" />
+                  <Stat label="Attack Power" value={String(e?.attackPower ?? 0)} />
                   <Stat label="IPC Banked" value={String(e?.ipcRemaining ?? 0)} />
                   <Stat label="Purchases" value={String(e?.purchases ?? 0)} />
                 </div>

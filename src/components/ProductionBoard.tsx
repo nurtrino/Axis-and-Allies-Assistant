@@ -71,7 +71,13 @@ function BreakthroughColumn({
   );
 }
 
-export default function ProductionBoard({ powers }: { powers: BoardPower[] }) {
+export default function ProductionBoard({
+  powers,
+  includeResearch = true,
+}: {
+  powers: BoardPower[];
+  includeResearch?: boolean;
+}) {
   // Group powers by the track number their income lands on.
   const byNumber = new Map<number, BoardPower[]>();
   for (const p of powers) {
@@ -105,15 +111,19 @@ export default function ProductionBoard({ powers }: { powers: BoardPower[] }) {
           borderBottom: `2px solid ${GOLD}`,
         }}
       >
-        National Production / Research &amp; Development Chart
+        {includeResearch
+          ? "National Production / Research & Development Chart"
+          : "National Production Chart"}
       </div>
 
       <div className="p-3 flex flex-wrap gap-3">
-        {/* Breakthrough reference columns */}
-        <div className="flex gap-2">
-          <BreakthroughColumn title="Chart 1" items={BREAKTHROUGHS.chart1} />
-          <BreakthroughColumn title="Chart 2" items={BREAKTHROUGHS.chart2} />
-        </div>
+        {/* Breakthrough reference columns — only when R&D is in play */}
+        {includeResearch && (
+          <div className="flex gap-2">
+            <BreakthroughColumn title="Chart 1" items={BREAKTHROUGHS.chart1} />
+            <BreakthroughColumn title="Chart 2" items={BREAKTHROUGHS.chart2} />
+          </div>
+        )}
 
         {/* Income track 1–72 */}
         <div className="flex-1 min-w-[280px]">

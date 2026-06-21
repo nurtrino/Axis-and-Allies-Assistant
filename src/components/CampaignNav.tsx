@@ -3,9 +3,7 @@ import Link from "next/link";
 const TABS = [
   { key: "war-room", label: "War Room", href: (id: string) => `/campaigns/${id}` },
   { key: "production", label: "Production", href: (id: string) => `/campaigns/${id}/production` },
-  { key: "planner", label: "Offensive Planner", href: (id: string) => `/campaigns/${id}/planner` },
-  { key: "brief", label: "Command Brief", href: (id: string) => `/campaigns/${id}/intel/brief` },
-  { key: "after-action", label: "After-Action", href: (id: string) => `/campaigns/${id}/intel/after-action` },
+  { key: "battle", label: "Battle", href: (id: string) => `/campaigns/${id}/battle` },
   { key: "rulebook", label: "Rulebook + Ask", href: (id: string) => `/campaigns/${id}/rulebook` },
 ];
 
@@ -16,7 +14,7 @@ export default function CampaignNav({
 }: {
   id: string;
   asQuery: string;
-  active: "war-room" | "production" | "planner" | "brief" | "after-action" | "rulebook";
+  active: "war-room" | "production" | "battle" | "rulebook";
 }) {
   return (
     <nav className="flex flex-wrap items-center gap-1 border-b border-border pb-1">

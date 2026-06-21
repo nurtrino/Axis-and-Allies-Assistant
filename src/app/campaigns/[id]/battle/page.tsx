@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { resolvePlayers } from "@/lib/players";
-import OffensivePlanner from "@/components/OffensivePlanner";
 import CampaignNav from "@/components/CampaignNav";
 
 export const dynamic = "force-dynamic";
 
-export default async function PlannerPage({
+export default async function BattlePage({
   params,
   searchParams,
 }: {
@@ -29,16 +29,18 @@ export default async function PlannerPage({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{campaign.name}</h1>
-        <p className="label mt-1">
-          Offensive Planner — model a battle&apos;s odds and economic return
-          before you commit.
-        </p>
+        <Link href="/campaigns" className="label hover:text-foreground">
+          ← Campaigns
+        </Link>
+        <h1 className="text-2xl font-semibold tracking-tight mt-1">{campaign.name}</h1>
+        <p className="label mt-1">Battle Simulator — Anniversary Edition general combat</p>
       </div>
 
-      <CampaignNav id={id} asQuery={asQuery} active="planner" />
+      <CampaignNav id={id} asQuery={asQuery} active="battle" />
 
-      <OffensivePlanner />
+      <div className="panel p-10 text-center label">
+        Battle setup &amp; animated resolution are under construction.
+      </div>
     </div>
   );
 }

@@ -40,6 +40,7 @@ export default function PlayerSetup() {
   const [scenario, setScenario] = useState("Y1942");
   const [trackingMode, setTrackingMode] = useState("DETAILED");
   const [victoryCityGoal, setVictoryCityGoal] = useState(15);
+  const [includeResearch, setIncludeResearch] = useState(true);
 
   const [players, setPlayers] = useState<string[]>(["", ""]);
   const [assign, setAssign] = useState<Record<string, number>>(autoAssign(2));
@@ -109,6 +110,7 @@ export default function PlayerSetup() {
           scenario,
           trackingMode,
           victoryCityGoal,
+          includeResearch,
           players: payloadPlayers,
         });
       } catch (e) {
@@ -173,6 +175,16 @@ export default function PlayerSetup() {
               </select>
             </div>
           </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={includeResearch}
+              onChange={(e) => setIncludeResearch(e.target.checked)}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+            <span className="text-sm">Include Research &amp; Development</span>
+            <span className="label">— shows the R&amp;D breakthrough columns on the Production board</span>
+          </label>
         </div>
 
         {/* Players */}
