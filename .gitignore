@@ -17,6 +17,11 @@
 /.next/
 /out/
 
+# @3d-dice/dice-box postinstall artifacts (duplicates of the committed
+# public/assets/dice-box/ assets; regenerated on every npm install)
+/public/assets/ammo/
+/public/assets/themes/
+
 # production
 /build
 
