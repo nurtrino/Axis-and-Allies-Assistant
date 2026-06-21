@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { logBattleLosses, logBomberRaid } from "@/app/actions";
+import { logBattleLosses, logBomberRaid, logTerritoryCapture } from "@/app/actions";
 import BattleStage from "./BattleStage";
 import BombingRaid from "./BombingRaid";
 import type { Stack } from "@/lib/battle";
@@ -26,12 +26,14 @@ export default function CampaignBattle({
   const [attackerNation, setAttackerNation] = useState(powers[0]?.key ?? "");
   const [defenderNation, setDefenderNation] = useState(powers[1]?.key ?? "");
   const [roundNumber, setRoundNumber] = useState(defaultRound);
+  const [territory, setTerritory] = useState("");
+  const [territoryIpc, setTerritoryIpc] = useState(0);
   const [logged, setLogged] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const nameOf = (k: string) => powers.find((p) => p.key === k)?.name ?? k;
 
-  function handleLog(data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string }) {
+  function handleLog(data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string; status: string }) {
     setLogged(null);
     startTransition(async () => {
       await logBattleLosses({
@@ -42,8 +44,21 @@ export default function CampaignBattle({
         attackerLosses: data.attackerLosses,
         defenderLosses: data.defenderLosses,
       });
+
+      let captureNote = "";
+      if (data.status === "attacker_captured" && territoryIpc > 0) {
+        await logTerritoryCapture({
+          campaignId,
+          roundNumber,
+          attackerNation,
+          defenderNation,
+          ipcValue: territoryIpc,
+        });
+        captureNote = ` · ${nameOf(attackerNation)} gains ${territoryIpc} IPC${territory ? ` (${territory})` : ""}, ${nameOf(defenderNation)} loses ${territoryIpc} IPC`;
+      }
+
       setLogged(
-        `Recorded to Round ${roundNumber}: ${nameOf(attackerNation)} and ${nameOf(defenderNation)} losses added to the ledger.`,
+        `Recorded to Round ${roundNumber}: ${nameOf(attackerNation)} and ${nameOf(defenderNation)} losses added to the ledger.${captureNote}`,
       );
     });
   }
@@ -75,9 +90,30 @@ export default function CampaignBattle({
             ))}
           </select>
         </div>
+        <div>
+          <label className="label block mb-1">Territory (optional)</label>
+          <input
+            className="field"
+            type="text"
+            placeholder="e.g. Kwangtung"
+            value={territory}
+            onChange={(e) => setTerritory(e.target.value)}
+            style={{ width: 160 }}
+          />
+        </div>
+        <div>
+          <label className="label block mb-1">Territory IPC</label>
+          <input
+            className="field stat text-right"
+            type="number"
+            min={0}
+            value={territoryIpc}
+            onChange={(e) => setTerritoryIpc(Math.max(0, parseInt(e.target.value, 10) || 0))}
+            style={{ width: 72 }}
+          />
+        </div>
         <p className="label flex-1 min-w-[12rem]">
-          Pick the two countries fighting. When the battle resolves, each side&apos;s losses are
-          recorded automatically to those nations for the selected round.
+          If the attacker captures the territory, its IPC value is transferred between nations automatically.
         </p>
       </div>
 

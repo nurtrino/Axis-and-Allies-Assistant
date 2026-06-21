@@ -240,7 +240,7 @@ const STATUS_TEXT: Record<string, { label: string; color: string }> = {
 export default function BattleStage({
   onLogResult,
 }: {
-  onLogResult?: (data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string }) => void;
+  onLogResult?: (data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string; status: string }) => void;
 }) {
   const [mode, setMode] = useState<"setup" | "battle">("setup");
   const [attackerStack, setAttackerStack] = useState<Stack>({});
@@ -303,6 +303,7 @@ export default function BattleStage({
         attackerLosses: lossStack(attackerStack, summary.attackerSurvivors),
         defenderLosses: lossStack(defenderStack, summary.defenderSurvivors),
         summaryText: STATUS_TEXT[summary.status]?.label ?? summary.status,
+        status: summary.status,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

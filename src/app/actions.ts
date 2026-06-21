@@ -215,6 +215,45 @@ export async function logBattleLosses(input: {
   revalidatePath(`/campaigns/${input.campaignId}/round/${input.roundNumber}`);
 }
 
+/**
+ * Transfer IPC income from the losing defender to the winning attacker when
+ * a territory changes hands.  Income is clamped to ≥ 0 for the defender.
+ */
+export async function logTerritoryCapture(input: {
+  campaignId: string;
+  roundNumber: number;
+  attackerNation: string;
+  defenderNation: string;
+  ipcValue: number;
+}) {
+  const round = await prisma.round.findUnique({
+    where: { campaignId_number: { campaignId: input.campaignId, number: input.roundNumber } },
+  });
+  if (!round) throw new Error("Round not found.");
+
+  // Attacker gains the territory's IPC.
+  await prisma.nationEntry.upsert({
+    where: { roundId_nation: { roundId: round.id, nation: input.attackerNation } },
+    create: { roundId: round.id, nation: input.attackerNation, income: input.ipcValue },
+    update: { income: { increment: input.ipcValue } },
+  });
+
+  // Defender loses it (floor at 0).
+  const defEntry = await prisma.nationEntry.upsert({
+    where: { roundId_nation: { roundId: round.id, nation: input.defenderNation } },
+    create: { roundId: round.id, nation: input.defenderNation, income: 0 },
+    update: {},
+  });
+  await prisma.nationEntry.update({
+    where: { id: defEntry.id },
+    data: { income: Math.max(0, defEntry.income - input.ipcValue) },
+  });
+
+  await prisma.campaign.update({ where: { id: input.campaignId }, data: {} });
+  revalidatePath(`/campaigns/${input.campaignId}`);
+  revalidatePath(`/campaigns/${input.campaignId}/round/${input.roundNumber}`);
+}
+
 /** Record a strategic bombing raid onto a round's nation entry. */
 export async function logBomberRaid(input: {
   campaignId: string;
