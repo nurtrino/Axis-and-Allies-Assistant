@@ -243,8 +243,8 @@ export default function BattleStage({
   onLogResult?: (data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string }) => void;
 }) {
   const [mode, setMode] = useState<"setup" | "battle">("setup");
-  const [attackerStack, setAttackerStack] = useState<Stack>({ infantry: 3, artillery: 1, tank: 1 });
-  const [defenderStack, setDefenderStack] = useState<Stack>({ infantry: 3 });
+  const [attackerStack, setAttackerStack] = useState<Stack>({});
+  const [defenderStack, setDefenderStack] = useState<Stack>({});
   const [amphibious, setAmphibious] = useState(false);
   const [state, setState] = useState<BattleState | null>(null);
   const [rolling, setRolling] = useState(false);
@@ -299,7 +299,15 @@ export default function BattleStage({
   useEffect(() => {
     if (!auto) return;
     if (mode === "setup") {
-      const t = setTimeout(() => begin(), 900);
+      const t = setTimeout(() => {
+        // Dev autopilot: seed a sample battle (real users start empty).
+        const a: Stack = { infantry: 3, artillery: 1, tank: 1 };
+        const d: Stack = { infantry: 3 };
+        setAttackerStack(a);
+        setDefenderStack(d);
+        setState(createBattle(a, d, { amphibious }));
+        setMode("battle");
+      }, 900);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => {
