@@ -162,6 +162,59 @@ export async function setCampaignStatus(formData: FormData) {
   revalidatePath(`/campaigns/${id}`);
 }
 
+/**
+ * Record the unit losses from a resolved battle onto a round's nation entries.
+ * Attacker and defender losses are added to the chosen nations' itemized losses
+ * (accumulating with anything already logged for that round).
+ */
+export async function logBattleLosses(input: {
+  campaignId: string;
+  roundNumber: number;
+  attackerNation: string;
+  defenderNation: string;
+  attackerLosses: Record<string, number>;
+  defenderLosses: Record<string, number>;
+}) {
+  const round = await prisma.round.findUnique({
+    where: { campaignId_number: { campaignId: input.campaignId, number: input.roundNumber } },
+  });
+  if (!round) throw new Error("Round not found.");
+
+  const sides: [string, Record<string, number>][] = [
+    [input.attackerNation, input.attackerLosses],
+    [input.defenderNation, input.defenderLosses],
+  ];
+
+  for (const [nation, losses] of sides) {
+    if (!nation) continue;
+    const entry = await prisma.nationEntry.upsert({
+      where: { roundId_nation: { roundId: round.id, nation } },
+      create: { roundId: round.id, nation },
+      update: {},
+    });
+    for (const [unitType, qty] of Object.entries(losses)) {
+      if (!qty || qty <= 0) continue;
+      const existing = await prisma.loss.findFirst({
+        where: { nationEntryId: entry.id, unitType },
+      });
+      if (existing) {
+        await prisma.loss.update({
+          where: { id: existing.id },
+          data: { quantity: existing.quantity + qty },
+        });
+      } else {
+        await prisma.loss.create({
+          data: { nationEntryId: entry.id, unitType, quantity: qty },
+        });
+      }
+    }
+  }
+
+  await prisma.campaign.update({ where: { id: input.campaignId }, data: {} });
+  revalidatePath(`/campaigns/${input.campaignId}`);
+  revalidatePath(`/campaigns/${input.campaignId}/round/${input.roundNumber}`);
+}
+
 export interface EntryInput {
   nation: string;
   income: number;
