@@ -21,6 +21,7 @@ import {
 // ── dice-box singleton (one physics world, survives StrictMode double-mount) ──
 let boxSingleton: any = null;
 let boxPromise: Promise<any> | null = null;
+let diceCanvas: HTMLElement | null = null;
 async function getDiceBox(): Promise<any> {
   if (boxSingleton) return boxSingleton;
   if (boxPromise) return boxPromise;
@@ -37,6 +38,7 @@ async function getDiceBox(): Promise<any> {
     });
     await box.init();
     boxSingleton = box;
+    diceCanvas = document.getElementById("battle-dice-canvas");
     return box;
   })();
   return boxPromise;
@@ -244,6 +246,7 @@ export default function BattleStage({
 
   const boxRef = useRef<any>(null);
   const flashKey = useRef(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Init once on mount. The dice stage div is mounted for the whole lifetime of
   // this component (see render), so the box's canvas never detaches between the
@@ -254,12 +257,25 @@ export default function BattleStage({
       .then((box) => {
         if (cancelled) return;
         boxRef.current = box;
+        // A previous mount can leave the dice canvas attached to an old (removed)
+        // container, which makes the dice "disappear". Re-home it here.
+        const container = document.getElementById("battle-dice-stage");
+        if (container && diceCanvas && diceCanvas.parentElement !== container) {
+          container.appendChild(diceCanvas);
+        }
         setDiceReady(true);
       })
       .catch(() => setDiceReady(false));
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Dice-roll sound effect.
+  useEffect(() => {
+    const a = new Audio("/sounds/dice-roll.mp3");
+    a.volume = 0.55;
+    audioRef.current = a;
   }, []);
 
   const step = state ? peek(state) : null;
@@ -313,6 +329,14 @@ export default function BattleStage({
     if (!state || !step || rolling) return;
     if (step.decision === "retreat") return;
     setRolling(true);
+    if (audioRef.current && step.dice.length > 0) {
+      try {
+        audioRef.current.currentTime = 0;
+        void audioRef.current.play().catch(() => {});
+      } catch {
+        /* ignore audio errors */
+      }
+    }
     try {
       let values: number[] = [];
       const box = boxRef.current;
