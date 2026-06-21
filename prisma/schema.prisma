@@ -1,0 +1,133 @@
+// Axis & Allies Anniversary Edition companion — data model.
+// Enums are stored as plain strings (SQLite has no native enums); values are
+// validated in the app layer against src/lib/anniversary.config.ts. This keeps
+// the schema portable to Postgres later without a migration rewrite.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Campaign {
+  id              String   @id @default(cuid())
+  name            String
+  opponent        String?
+  // Default perspective coalition when no player is selected: "AXIS" | "ALLIES".
+  // Legacy field; per-player perspective now comes from the Player model.
+  side            String
+  // "Y1941" (Barbarossa start) | "Y1942" (high-water mark)
+  scenario        String   @default("Y1942")
+  // "FAST" | "DETAILED"
+  trackingMode    String   @default("DETAILED")
+  // Victory-city tokens needed to win: 13 (short) | 15 (standard) | 18 (full)
+  victoryCityGoal Int      @default(15)
+  // "ACTIVE" | "VICTORY" | "DEFEAT"
+  status          String   @default("ACTIVE")
+  startDate       DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  rounds      Round[]
+  players     Player[]
+  assignments PowerAssignment[]
+}
+
+model Player {
+  id         String   @id @default(cuid())
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+  name       String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  assignments PowerAssignment[]
+
+  @@index([campaignId])
+}
+
+// One row per controlled power. Each power is assigned to exactly one player
+// within a campaign (enforced by the unique constraint). China is implicitly
+// controlled by whoever holds the USA — it is not stored as its own assignment.
+model PowerAssignment {
+  id         String   @id @default(cuid())
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  playerId   String
+  powerKey   String
+
+  @@unique([campaignId, powerKey])
+  @@index([campaignId])
+  @@index([playerId])
+}
+
+model Round {
+  id         String   @id @default(cuid())
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+  number     Int
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  // Optional per-round board snapshot (mirrors the TurnLedger SITREP panel).
+  // Region control as owned/total counts; victory cities held by each side.
+  tcEuropeOwned   Int?
+  tcEuropeTotal   Int?
+  tcAsiaOwned     Int?
+  tcAsiaTotal     Int?
+  tcAmericasOwned Int?
+  tcAmericasTotal Int?
+  vcAxis          Int?
+  vcAllies        Int?
+
+  entries NationEntry[]
+
+  @@unique([campaignId, number])
+  @@index([campaignId])
+}
+
+model NationEntry {
+  id      String @id @default(cuid())
+  round   Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  roundId String
+  // "GERMANY" | "JAPAN" | "ITALY" | "USSR" | "UK" | "USA" | "CHINA"
+  nation  String
+
+  income          Int @default(0) // IPCs collected this turn (territory income)
+  objectiveBonus  Int @default(0) // National Objective bonus IPCs (Anniversary)
+  purchases       Int @default(0) // IPCs spent on units
+  ipcRemaining    Int @default(0) // IPCs banked at end of turn
+  attackPower     Int @default(0) // total attack power (entered, or computed in DETAILED mode)
+  ipcLost         Int @default(0) // FAST mode: total IPC value of units lost (DETAILED uses itemized losses)
+
+  losses Loss[]
+  raids  BomberRaid[]
+
+  @@unique([roundId, nation])
+  @@index([roundId])
+}
+
+model Loss {
+  id            String      @id @default(cuid())
+  nationEntry   NationEntry @relation(fields: [nationEntryId], references: [id], onDelete: Cascade)
+  nationEntryId String
+  unitType      String // key into UNITS in anniversary.config.ts
+  quantity      Int     @default(0)
+
+  @@index([nationEntryId])
+}
+
+model BomberRaid {
+  id            String      @id @default(cuid())
+  nationEntry   NationEntry @relation(fields: [nationEntryId], references: [id], onDelete: Cascade)
+  nationEntryId String
+  bombers       Int         @default(1)
+  damage        Int         @default(0) // IPC damage inflicted on the factory
+  bombersLost   Int         @default(0)
+
+  @@index([nationEntryId])
+}

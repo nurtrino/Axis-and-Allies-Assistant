@@ -24,6 +24,17 @@
 .DS_Store
 *.pem
 
+# local database (SQLite dev artifacts — never commit data)
+/dev.db
+*.db
+*.db-journal
+
+# local hidden dev-server log
+/dev-server.log
+
+# development screenshots at the project root (not needed in the repo)
+/*.png
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -39,3 +50,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma

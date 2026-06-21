@@ -1,0 +1,40 @@
+# Render Blueprint for the Axis & Allies Anniversary companion ("War Ledger").
+# Deploy: push this repo to GitHub, then in Render -> New -> Blueprint, point it
+# at the repo. Render reads this file and provisions the web service + Postgres.
+# Full walkthrough: RENDER.md.
+
+databases:
+  - name: aa-anniversary-db
+    databaseName: aa_anniversary
+    user: aa_anniversary
+    # Free Postgres is fine to start, but Render DELETES free databases after
+    # ~30 days. Change to `basic` (or higher) to keep your campaigns durable.
+    plan: free
+
+services:
+  - type: web
+    name: aa-anniversary-companion
+    runtime: node
+    # Free web instances sleep after ~15 min idle and cold-start on next visit.
+    # Bump to `starter` for an always-on instance.
+    plan: free
+    # Build installs deps (postinstall runs `prisma generate`), applies any
+    # pending migrations to the database, then builds Next.js. All DB-reading
+    # pages are force-dynamic, so the build itself never queries the database.
+    buildCommand: npm install && npx prisma migrate deploy && npm run build
+    # Bind to the port Render assigns.
+    startCommand: npx next start -p $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aa-anniversary-db
+          property: connectionString
+      # Set this in the Render dashboard (Environment tab) — it is a secret and
+      # intentionally not stored in this file. Leave blank to run without the AI
+      # assistant; the rest of the app works regardless.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: "20"
