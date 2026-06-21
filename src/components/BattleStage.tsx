@@ -289,6 +289,25 @@ export default function BattleStage({
   const step = state ? peek(state) : null;
   const summary = state && !step ? summarize(state) : null;
 
+  // When the battle resolves, automatically record each side's losses to the
+  // chosen nations' round entries (once per battle).
+  const resolvedRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "battle") {
+      resolvedRef.current = false;
+      return;
+    }
+    if (summary && onLogResult && !resolvedRef.current) {
+      resolvedRef.current = true;
+      onLogResult({
+        attackerLosses: lossStack(attackerStack, summary.attackerSurvivors),
+        defenderLosses: lossStack(defenderStack, summary.defenderSurvivors),
+        summaryText: STATUS_TEXT[summary.status]?.label ?? summary.status,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, summary?.status, onLogResult]);
+
   // Dev auto-pilot (gated on ?auto=1) so the battle can be verified without clicks.
   const [auto, setAuto] = useState(false);
   useEffect(() => {
@@ -546,21 +565,12 @@ export default function BattleStage({
             <div><div className="label">Defender IPC value lost</div><div className="stat text-xl" style={{ color: DEFENDER_TINT }}>{summary.defenderIpcLost}</div></div>
             <div><div className="label">Survivors</div><div className="stat text-xl">{totalUnits(summary.attackerSurvivors)} v {totalUnits(summary.defenderSurvivors)}</div></div>
           </div>
-          <div className="flex gap-2 mt-4">
+          <div className="flex items-center gap-3 mt-4">
             <button className="btn btn-primary" onClick={reset}>New Battle</button>
             {onLogResult && (
-              <button
-                className="btn"
-                onClick={() =>
-                  onLogResult({
-                    attackerLosses: lossStack(attackerStack, summary.attackerSurvivors),
-                    defenderLosses: lossStack(defenderStack, summary.defenderSurvivors),
-                    summaryText: STATUS_TEXT[summary.status]?.label ?? summary.status,
-                  })
-                }
-              >
-                Log losses to round
-              </button>
+              <span className="label" style={{ color: "var(--good)" }}>
+                ✓ Losses recorded for the fighting nations
+              </span>
             )}
           </div>
         </div>

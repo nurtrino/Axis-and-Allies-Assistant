@@ -52,7 +52,7 @@ export default function CampaignBattle({
     <div className="space-y-4">
       <div className="panel p-3 flex flex-wrap items-end gap-4">
         <div>
-          <label className="label block mb-1">Attacking nation</label>
+          <label className="label block mb-1">Attacking country</label>
           <select className="field" value={attackerNation} onChange={(e) => setAttackerNation(e.target.value)}>
             {powers.map((p) => (
               <option key={p.key} value={p.key}>{p.name}</option>
@@ -60,7 +60,7 @@ export default function CampaignBattle({
           </select>
         </div>
         <div>
-          <label className="label block mb-1">Defending nation</label>
+          <label className="label block mb-1">Defending country</label>
           <select className="field" value={defenderNation} onChange={(e) => setDefenderNation(e.target.value)}>
             {powers.map((p) => (
               <option key={p.key} value={p.key}>{p.name}</option>
@@ -68,7 +68,7 @@ export default function CampaignBattle({
           </select>
         </div>
         <div>
-          <label className="label block mb-1">Log to round</label>
+          <label className="label block mb-1">Round</label>
           <select className="field" value={roundNumber} onChange={(e) => setRoundNumber(Number(e.target.value))}>
             {rounds.map((n) => (
               <option key={n} value={n}>Round {n}</option>
@@ -76,8 +76,8 @@ export default function CampaignBattle({
           </select>
         </div>
         <p className="label flex-1 min-w-[12rem]">
-          When a battle resolves, use <span className="stat">Log losses to round</span> to add each
-          side&apos;s casualties to the chosen nations&apos; ledger entries.
+          Pick the two countries fighting. When the battle resolves, each side&apos;s losses are
+          recorded automatically to those nations for the selected round.
         </p>
       </div>
 

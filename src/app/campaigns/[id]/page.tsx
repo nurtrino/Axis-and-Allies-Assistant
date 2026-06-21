@@ -9,7 +9,6 @@ import { resolvePlayers } from "@/lib/players";
 import { victoryHorizon } from "@/lib/intel";
 import CampaignCharts from "@/components/CampaignCharts";
 import CampaignNav from "@/components/CampaignNav";
-import CompleteTurn from "@/components/CompleteTurn";
 
 export const dynamic = "force-dynamic";
 
@@ -178,18 +177,6 @@ export default async function WarRoom({
           </div>
         </div>
       )}
-
-      {/* Complete Turn — territory changes adjust IPC income */}
-      <CompleteTurn
-        campaignId={id}
-        roundNumber={currentNum}
-        powers={POWERS.filter((p) => !p.minor).map((p) => ({
-          key: p.key,
-          name: p.name,
-          color: p.color,
-          income: entryByNation.get(p.key)?.income ?? 0,
-        }))}
-      />
 
       {/* Battle bar */}
       <div className="panel p-5">
