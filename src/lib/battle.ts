@@ -224,9 +224,11 @@ function subDice(s: BattleState, side: Side): DieSpec[] {
 }
 
 function aaDice(s: BattleState): DieSpec[] {
+  // One die per attacking air unit. Only one AA gun fires per territory even if
+  // several are present, so the gun count beyond the first does not add dice.
   const guns = alive(s.defender).filter((u) => u.key === "aaGun").length;
   const air = alive(s.attacker).filter((u) => isAir(u.key)).length;
-  const shots = Math.min(air, guns * 3);
+  const shots = guns > 0 ? air : 0;
   return Array.from({ length: shots }, () => ({ uid: 0, key: "aaGun", hitOn: 1 }));
 }
 
@@ -345,7 +347,7 @@ export function peek(state: BattleState): PendingStep | null {
       return {
         kind, round: state.round, color: NEUTRAL_COLOR, dice: aaDice(state),
         title: "Antiaircraft Fire",
-        explanation: "Defending AA guns fire at attacking aircraft (max 3 shots per gun). Each 1 destroys one aircraft before combat.",
+        explanation: "Defending AA fires one shot at each attacking aircraft (only one gun fires per territory). Each 1 destroys an aircraft before combat.",
       };
     case "attacker_sub_strike":
       return {

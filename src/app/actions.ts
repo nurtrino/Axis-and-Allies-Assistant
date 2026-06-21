@@ -215,6 +215,37 @@ export async function logBattleLosses(input: {
   revalidatePath(`/campaigns/${input.campaignId}/round/${input.roundNumber}`);
 }
 
+/** Record a strategic bombing raid onto a round's nation entry. */
+export async function logBomberRaid(input: {
+  campaignId: string;
+  roundNumber: number;
+  nation: string;
+  bombers: number;
+  damage: number;
+  bombersLost: number;
+}) {
+  const round = await prisma.round.findUnique({
+    where: { campaignId_number: { campaignId: input.campaignId, number: input.roundNumber } },
+  });
+  if (!round) throw new Error("Round not found.");
+  const entry = await prisma.nationEntry.upsert({
+    where: { roundId_nation: { roundId: round.id, nation: input.nation } },
+    create: { roundId: round.id, nation: input.nation },
+    update: {},
+  });
+  await prisma.bomberRaid.create({
+    data: {
+      nationEntryId: entry.id,
+      bombers: input.bombers,
+      damage: input.damage,
+      bombersLost: input.bombersLost,
+    },
+  });
+  await prisma.campaign.update({ where: { id: input.campaignId }, data: {} });
+  revalidatePath(`/campaigns/${input.campaignId}`);
+  revalidatePath(`/campaigns/${input.campaignId}/round/${input.roundNumber}`);
+}
+
 export interface EntryInput {
   nation: string;
   income: number;

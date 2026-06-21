@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { logBattleLosses } from "@/app/actions";
+import { logBattleLosses, logBomberRaid } from "@/app/actions";
 import BattleStage from "./BattleStage";
 import BombingRaid from "./BombingRaid";
 import type { Stack } from "@/lib/battle";
@@ -90,7 +90,23 @@ export default function CampaignBattle({
 
       <BattleStage onLogResult={handleLog} />
 
-      <BombingRaid />
+      <BombingRaid
+        onSave={(data) =>
+          startTransition(async () => {
+            await logBomberRaid({
+              campaignId,
+              roundNumber,
+              nation: attackerNation,
+              bombers: data.bombers,
+              damage: data.damage,
+              bombersLost: data.bombersLost,
+            });
+            setLogged(
+              `Bombing raid recorded to Round ${roundNumber} for ${nameOf(attackerNation)}: ${data.damage} IPC damage, ${data.bombersLost} bomber(s) lost.`,
+            );
+          })
+        }
+      />
     </div>
   );
 }

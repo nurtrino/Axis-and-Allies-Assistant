@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import UnitIcon from "./UnitIcon";
 
 interface Result {
+  bombers: number;
   aaRolls: number[];
   bombersLost: number;
   survivors: number;
@@ -34,12 +35,17 @@ function Chip({ value, hit, hitColor }: { value: number; hit: boolean; hitColor:
   );
 }
 
-export default function BombingRaid() {
+export default function BombingRaid({
+  onSave,
+}: {
+  onSave?: (data: { bombers: number; damage: number; bombersLost: number }) => void;
+}) {
   const [bombers, setBombers] = useState(3);
   const [targetIpc, setTargetIpc] = useState(3);
   const [aaGun, setAaGun] = useState(true);
   const [heavy, setHeavy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [saved, setSaved] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const d6 = () => 1 + Math.floor(Math.random() * 6);
@@ -74,7 +80,8 @@ export default function BombingRaid() {
     const maxDamage = Math.max(0, targetIpc) * 2;
     const damage = Math.min(rawDamage, maxDamage);
 
-    setResult({ aaRolls, bombersLost: lost, survivors, damageRolls, rawDamage, maxDamage, damage });
+    setSaved(false);
+    setResult({ bombers, aaRolls, bombersLost: lost, survivors, damageRolls, rawDamage, maxDamage, damage });
   }
 
   const numField =
@@ -103,7 +110,7 @@ export default function BombingRaid() {
           <input className={numField} type="number" min={0} value={targetIpc}
             onChange={(e) => setTargetIpc(Math.max(0, parseInt(e.target.value, 10) || 0))} />
         </label>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
+        <label className="flex items-center gap-2 cursor-pointer select-none" title="Only one AA gun fires per territory, even if several are present.">
           <input type="checkbox" checked={aaGun} onChange={(e) => setAaGun(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
           <span className="text-sm">AA gun defends</span>
         </label>
@@ -162,6 +169,20 @@ export default function BombingRaid() {
             Each point is a damage marker — one fewer unit that factory can build until repaired
             (1 IPC each). Complexes are never destroyed.
           </p>
+
+          {onSave && (
+            <button
+              className="btn w-full"
+              disabled={saved}
+              onClick={() => {
+                onSave({ bombers: result.bombers, damage: result.damage, bombersLost: result.bombersLost });
+                setSaved(true);
+              }}
+              style={saved ? { color: "var(--good)" } : undefined}
+            >
+              {saved ? "✓ Saved to round" : "Save raid to round"}
+            </button>
+          )}
         </div>
       )}
     </div>
