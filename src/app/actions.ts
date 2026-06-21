@@ -145,10 +145,23 @@ export async function addRound(formData: FormData) {
   const last = await prisma.round.findFirst({
     where: { campaignId },
     orderBy: { number: "desc" },
+    include: { entries: true },
   });
   const number = (last?.number ?? 0) + 1;
   const round = await prisma.round.create({ data: { campaignId, number } });
-  await seedEntries(round.id);
+
+  // Carry income forward from the previous round so territory control persists.
+  if (last?.entries?.length) {
+    await prisma.nationEntry.createMany({
+      data: last.entries.map((e) => ({
+        roundId: round.id,
+        nation: e.nation,
+        income: e.income,
+      })),
+    });
+  } else {
+    await seedEntries(round.id);
+  }
 
   await prisma.campaign.update({ where: { id: campaignId }, data: {} }); // touch updatedAt
   revalidatePath(`/campaigns/${campaignId}`);
