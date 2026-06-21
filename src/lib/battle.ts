@@ -32,6 +32,8 @@ export interface BattleUnit {
   side: Side;
   hp: number;
   maxHp: number;
+  /** Submarine that ducked out of this battle — survives, but no longer fights. */
+  submerged?: boolean;
 }
 
 export interface BattleContext {
@@ -75,6 +77,8 @@ export interface PendingStep {
   /** dice-box theme color for this group. */
   color: string;
   decision?: "retreat";
+  /** Submarines may submerge (duck out) instead of making this strike. */
+  canSubmerge?: boolean;
 }
 
 export interface RollDetail {
@@ -134,8 +138,10 @@ const isAir = (key: string) => UNITS_BY_KEY[key]?.domain === "air";
 const isSea = (key: string) => UNITS_BY_KEY[key]?.domain === "sea";
 const isLand = (key: string) => UNITS_BY_KEY[key]?.domain === "land";
 
-/** Units that participate in normal general combat (not AA guns / structures). */
-const fights = (u: BattleUnit) => u.key !== "aaGun" && !isStructure(u.key) && u.hp > 0;
+/** Units that participate in normal general combat (not AA guns / structures /
+ * submerged subs). */
+const fights = (u: BattleUnit) =>
+  u.key !== "aaGun" && !isStructure(u.key) && u.hp > 0 && !u.submerged;
 
 const alive = (us: BattleUnit[]) => us.filter((u) => u.hp > 0);
 
@@ -157,7 +163,7 @@ function hasDestroyer(units: BattleUnit[]) {
 }
 function subsSurprise(own: BattleUnit[], enemy: BattleUnit[]) {
   // Subs fire in the surprise step when the enemy has no destroyer.
-  return alive(own).some((u) => u.key === "submarine") && !hasDestroyer(enemy);
+  return alive(own).some((u) => u.key === "submarine" && !u.submerged) && !hasDestroyer(enemy);
 }
 function attackerCanBombard(s: BattleState) {
   return alive(s.attacker).some((u) => u.key === "battleship" || u.key === "cruiser");
@@ -213,7 +219,7 @@ function fireDice(s: BattleState, side: Side): DieSpec[] {
 function subDice(s: BattleState, side: Side): DieSpec[] {
   const own = side === "attacker" ? s.attacker : s.defender;
   return alive(own)
-    .filter((u) => u.key === "submarine")
+    .filter((u) => u.key === "submarine" && !u.submerged)
     .map((u) => ({ uid: u.uid, key: u.key, hitOn: side === "attacker" ? 2 : 1 }));
 }
 
@@ -343,15 +349,15 @@ export function peek(state: BattleState): PendingStep | null {
       };
     case "attacker_sub_strike":
       return {
-        kind, side: "attacker", round: state.round, color: ATTACKER_COLOR, dice: subDice(state, "attacker"),
+        kind, side: "attacker", round: state.round, color: ATTACKER_COLOR, dice: subDice(state, "attacker"), canSubmerge: true,
         title: "Attacking Submarine Surprise Strike",
-        explanation: "No defending destroyer, so attacking subs strike first (hit on 2). These casualties are removed before they can fire back.",
+        explanation: "No defending destroyer, so attacking subs may strike first (hit on 2) — or submerge and duck out of the battle.",
       };
     case "defender_sub_strike":
       return {
-        kind, side: "defender", round: state.round, color: DEFENDER_COLOR, dice: subDice(state, "defender"),
+        kind, side: "defender", round: state.round, color: DEFENDER_COLOR, dice: subDice(state, "defender"), canSubmerge: true,
         title: "Defending Submarine Surprise Strike",
-        explanation: "No attacking destroyer, so defending subs strike first (hit on 1). These casualties are removed before they can fire back.",
+        explanation: "No attacking destroyer, so defending subs may strike first (hit on 1) — or submerge and duck out of the battle.",
       };
     case "bombardment":
       return {
@@ -414,10 +420,10 @@ export function resolveRoll(state: BattleState, values: number[]): BattleState {
     casualties = assignCasualties(state.attacker, hits, (u) => isAir(u.key));
     text = hits ? `${hits} aircraft shot down before combat.` : "All attacking aircraft get through.";
   } else if (kind === "attacker_sub_strike") {
-    casualties = assignCasualties(state.defender, hits, (u) => isSea(u.key));
+    casualties = assignCasualties(state.defender, hits, (u) => isSea(u.key) && !u.submerged);
     text = hits ? `${hits} defending ship${hits > 1 ? "s" : ""} sunk by surprise.` : "The surprise strike misses.";
   } else if (kind === "defender_sub_strike") {
-    casualties = assignCasualties(state.attacker, hits, (u) => isSea(u.key));
+    casualties = assignCasualties(state.attacker, hits, (u) => isSea(u.key) && !u.submerged);
     text = hits ? `${hits} attacking ship${hits > 1 ? "s" : ""} sunk by surprise.` : "The surprise strike misses.";
   } else if (kind === "bombardment") {
     state.pendingAttackerHits += hits; // applied with this round's attacker fire
@@ -455,6 +461,40 @@ export function chooseRetreat(state: BattleState, retreat: boolean): BattleState
     state.round += 1;
     state.steps = roundSteps(state);
     state.stepIndex = 0;
+    settle(state);
+  }
+  return { ...state };
+}
+
+/** The current side's submarines submerge (duck out) instead of striking. They
+ * survive but take no further part in the battle. */
+export function submergeCurrent(state: BattleState): BattleState {
+  const step = peek(state);
+  if (!step || (step.kind !== "attacker_sub_strike" && step.kind !== "defender_sub_strike")) {
+    return state;
+  }
+  const side = step.side as Side;
+  const own = side === "attacker" ? state.attacker : state.defender;
+  let count = 0;
+  for (const u of own) {
+    if (u.key === "submarine" && u.hp > 0 && !u.submerged) {
+      u.submerged = true;
+      count++;
+    }
+  }
+  state.log.push({
+    round: state.round,
+    kind: step.kind,
+    side,
+    title: `${side === "attacker" ? "Attacking" : "Defending"} Submarines Submerge`,
+    text: `${count} submarine${count === 1 ? "" : "s"} duck out of the battle and slip away.`,
+    rolls: [],
+    hits: 0,
+    casualties: [],
+  });
+  evaluateStatus(state);
+  if (state.status === "ongoing") {
+    state.stepIndex += 1;
     settle(state);
   }
   return { ...state };

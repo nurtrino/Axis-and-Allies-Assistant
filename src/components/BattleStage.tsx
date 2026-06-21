@@ -8,6 +8,7 @@ import {
   peek,
   resolveRoll,
   chooseRetreat,
+  submergeCurrent,
   summarize,
   type Stack,
   type BattleState,
@@ -176,20 +177,31 @@ function EventRow({ ev }: { ev: BattleEvent }) {
         )}
       </div>
       {ev.rolls.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1">
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
           {ev.rolls.map((r, i) => (
-            <span
+            <div
               key={i}
-              className="inline-flex items-center justify-center w-6 h-6 rounded text-xs stat"
+              className="flex flex-col items-center rounded px-1.5 pt-1 pb-0.5"
               style={{
-                background: r.hit ? "color-mix(in srgb, var(--good) 22%, transparent)" : "var(--surface-2)",
-                color: r.hit ? "var(--good)" : "var(--muted)",
-                border: r.hit ? "1px solid var(--good)" : "1px solid var(--border)",
+                background: r.hit ? "color-mix(in srgb, var(--good) 15%, transparent)" : "var(--surface-2)",
+                border: `1px solid ${r.hit ? "var(--good)" : "var(--border)"}`,
+                minWidth: 30,
               }}
-              title={`${UNITS_BY_KEY[r.key]?.name ?? r.key} rolled ${r.value} (hits on ${r.hitOn})`}
+              title={`${UNITS_BY_KEY[r.key]?.name ?? r.key}: rolled ${r.value}, needed ${r.hitOn} or less — ${r.hit ? "HIT" : "miss"}`}
             >
-              {r.value}
-            </span>
+              <span style={{ color: r.hit ? "var(--good)" : "var(--muted)", lineHeight: 0 }}>
+                <UnitIcon unitKey={r.key} size={14} />
+              </span>
+              <span
+                className="stat text-sm leading-none mt-0.5"
+                style={{ color: r.hit ? "var(--good)" : "var(--foreground)" }}
+              >
+                {r.value}
+              </span>
+              <span className="label" style={{ fontSize: 9, lineHeight: 1.3 }}>
+                ≤{r.hitOn} {r.hit ? "✓" : "✗"}
+              </span>
+            </div>
           ))}
         </div>
       )}
@@ -222,12 +234,13 @@ export default function BattleStage({
 }) {
   const [mode, setMode] = useState<"setup" | "battle">("setup");
   const [attackerStack, setAttackerStack] = useState<Stack>({ infantry: 3, artillery: 1, tank: 1 });
-  const [defenderStack, setDefenderStack] = useState<Stack>({ infantry: 3, aaGun: 0 });
+  const [defenderStack, setDefenderStack] = useState<Stack>({ infantry: 3 });
   const [amphibious, setAmphibious] = useState(false);
   const [state, setState] = useState<BattleState | null>(null);
   const [rolling, setRolling] = useState(false);
   const [diceReady, setDiceReady] = useState(false);
   const [hitFlash, setHitFlash] = useState<{ n: number; side: Side; key: number } | null>(null);
+  const [padRoll, setPadRoll] = useState<{ rolls: { value: number; hit: boolean }[]; key: number } | null>(null);
 
   const boxRef = useRef<any>(null);
   const flashKey = useRef(0);
@@ -290,6 +303,8 @@ export default function BattleStage({
 
   function begin() {
     if (totalUnits(attackerStack) === 0) return;
+    setPadRoll(null);
+    setHitFlash(null);
     setState(createBattle(attackerStack, defenderStack, { amphibious }));
     setMode("battle");
   }
@@ -311,9 +326,13 @@ export default function BattleStage({
         values = step.dice.map(() => 1 + Math.floor(Math.random() * 6));
       }
       const hits = step.dice.reduce((h, d, i) => h + ((values[i] ?? 9) <= d.hitOn ? 1 : 0), 0);
-      if (hits > 0) {
+      if (step.dice.length > 0) {
         flashKey.current += 1;
         setHitFlash({ n: hits, side: step.side ?? "attacker", key: flashKey.current });
+        setPadRoll({
+          rolls: step.dice.map((d, i) => ({ value: values[i], hit: (values[i] ?? 9) <= d.hitOn })),
+          key: flashKey.current,
+        });
         window.setTimeout(() => setHitFlash(null), 1500);
       }
       setState(resolveRoll(state, values));
@@ -327,7 +346,16 @@ export default function BattleStage({
     setState(chooseRetreat(state, decision));
   }
 
+  function submerge() {
+    if (!state) return;
+    setPadRoll(null);
+    setHitFlash(null);
+    setState(submergeCurrent(state));
+  }
+
   function reset() {
+    setPadRoll(null);
+    setHitFlash(null);
     setState(null);
     setMode("setup");
   }
@@ -375,13 +403,37 @@ export default function BattleStage({
             key={hitFlash.key}
             className="hit-flash absolute left-1/2 top-1/2 pointer-events-none font-extrabold"
             style={{
-              color: hitFlash.side === "defender" ? DEFENDER_TINT : ATTACKER_TINT,
-              fontSize: 34,
+              color: hitFlash.n === 0
+                ? "var(--muted)"
+                : hitFlash.side === "defender" ? DEFENDER_TINT : ATTACKER_TINT,
+              fontSize: hitFlash.n === 0 ? 26 : 34,
               letterSpacing: 1,
               textShadow: "0 2px 12px rgba(0,0,0,0.85)",
             }}
           >
-            {hitFlash.n} HIT{hitFlash.n === 1 ? "" : "S"}!
+            {hitFlash.n === 0 ? "NO HITS" : `${hitFlash.n} HIT${hitFlash.n === 1 ? "" : "S"}!`}
+          </div>
+        )}
+
+        {/* Rolled-numbers readout on the green pad */}
+        {mode === "battle" && padRoll && (
+          <div className="absolute left-1/2 bottom-3 -translate-x-1/2 flex flex-wrap justify-center gap-1 max-w-[92%] pointer-events-none">
+            {padRoll.rolls.map((r, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center justify-center stat text-xs"
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  background: r.hit ? "color-mix(in srgb, var(--good) 32%, rgba(0,0,0,0.45))" : "rgba(0,0,0,0.5)",
+                  color: r.hit ? "#eafff1" : "#c8d0c6",
+                  border: `1px solid ${r.hit ? "var(--good)" : "rgba(255,255,255,0.28)"}`,
+                }}
+              >
+                {r.value}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -419,9 +471,20 @@ export default function BattleStage({
                 <button className="btn btn-primary" onClick={() => retreat(false)}>Press the Attack →</button>
               </div>
             ) : (
-              <button className="btn btn-primary shrink-0" onClick={rollStep} disabled={rolling || !diceReady}>
-                🎲 {rolling ? "Rolling…" : `Roll ${step.dice.length} dice`}
-              </button>
+              <div className="flex gap-2 shrink-0">
+                {step.canSubmerge && (
+                  <button className="btn" onClick={submerge} disabled={rolling}>
+                    Submerge ↓
+                  </button>
+                )}
+                <button className="btn btn-primary" onClick={rollStep} disabled={rolling || !diceReady}>
+                  🎲 {rolling
+                    ? "Rolling…"
+                    : step.canSubmerge
+                      ? `Surprise Strike (${step.dice.length})`
+                      : `Roll ${step.dice.length} dice`}
+                </button>
+              </div>
             )}
           </div>
         </div>
