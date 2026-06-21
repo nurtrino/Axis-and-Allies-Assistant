@@ -46,9 +46,13 @@ export default async function WarRoom({
           entries: { include: { losses: true, raids: true } },
         },
       },
+      nationStates: true,
     },
   });
   if (!campaign) notFound();
+  const treasuryByNation = new Map(
+    campaign.nationStates.map((s) => [s.nation, s.ipc]),
+  );
 
   // Resolve players and the current "commander" perspective.
   const players = resolvePlayers(campaign.players);
@@ -283,10 +287,10 @@ export default async function WarRoom({
                   <div className="label mt-1 truncate">cmdr: {controller}</div>
                 )}
                 <div className="grid grid-cols-2 gap-2 mt-3">
+                  <Stat label="Treasury" value={String(treasuryByNation.get(p.key) ?? 0)} accent="var(--accent)" />
+                  <Stat label="IPC Income" value={String(e?.income ?? 0)} />
                   <Stat label="Start IPC" value={String(startIpc)} />
-                  <Stat label="IPC Income" value={String(e?.income ?? 0)} accent="var(--accent)" />
                   <Stat label="Attack Power" value={String(e?.attackPower ?? 0)} />
-                  <Stat label="IPC Banked" value={String(e?.ipcRemaining ?? 0)} />
                   <Stat label="Purchases" value={String(e?.purchases ?? 0)} />
                 </div>
               </div>

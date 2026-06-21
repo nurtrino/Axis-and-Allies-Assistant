@@ -30,6 +30,16 @@ model Campaign {
   includeResearch Boolean  @default(true)
   // "ACTIVE" | "VICTORY" | "DEFEAT"
   status          String   @default("ACTIVE")
+
+  // ── Turn engine pointer ───────────────────────────────────────────────
+  // Whose power-turn is live, and which of the 7 phases they are in.
+  // Turn order is ASSIGNABLE_POWERS (USSR → GERMANY → UK → ITALY → JAPAN → USA);
+  // China folds into the USA turn. Phase numbers map to PHASES in lib/turn.ts
+  // (1 R&D · 2 Purchase · 3 Combat Move · 4 Conduct Combat · 5 Noncombat ·
+  // 6 Mobilize · 7 Collect Income). Phase 1 is skipped unless includeResearch.
+  activePowerKey  String   @default("USSR")
+  activePhase     Int      @default(2)
+
   startDate       DateTime @default(now())
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -37,6 +47,52 @@ model Campaign {
   rounds      Round[]
   players     Player[]
   assignments PowerAssignment[]
+  nationStates NationState[]
+}
+
+// Live, cross-round state for a power: its IPC treasury and unit inventory.
+// Distinct from NationEntry (a per-round ledger snapshot used for analytics) —
+// NationState is the authoritative "what does this nation have right now."
+// Designed to extend to a full board model later: UnitStock.territory and
+// future Territory rows can be added without reshaping this table.
+model NationState {
+  id         String   @id @default(cuid())
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+  nation     String
+  ipc        Int      @default(0) // running treasury (IPC certificates on hand)
+  updatedAt  DateTime @updatedAt
+
+  stocks  UnitStock[]
+  pending PendingUnit[]
+
+  @@unique([campaignId, nation])
+  @@index([campaignId])
+}
+
+// A quantity of one unit type a nation currently owns (mobilized / on the board).
+// `territory` is reserved for the future map model; null = a single national pool.
+model UnitStock {
+  id            String      @id @default(cuid())
+  nationState   NationState @relation(fields: [nationStateId], references: [id], onDelete: Cascade)
+  nationStateId String
+  unitType      String      // key into UNITS in anniversary.config.ts
+  quantity      Int         @default(0)
+
+  @@unique([nationStateId, unitType])
+  @@index([nationStateId])
+}
+
+// Units purchased in Phase 2 but not yet placed. Phase 6 (Mobilize) moves these
+// into UnitStock. IPC is deducted at purchase time, so this is just a holding pen.
+model PendingUnit {
+  id            String      @id @default(cuid())
+  nationState   NationState @relation(fields: [nationStateId], references: [id], onDelete: Cascade)
+  nationStateId String
+  unitType      String
+  quantity      Int         @default(0)
+
+  @@index([nationStateId])
 }
 
 model Player {

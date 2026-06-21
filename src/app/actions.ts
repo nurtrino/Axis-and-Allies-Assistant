@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { POWERS, SCENARIO_START_INCOME } from "@/lib/anniversary.config";
+import { POWERS, SCENARIO_START_INCOME, UNITS_BY_KEY } from "@/lib/anniversary.config";
+import { advance, startPhase } from "@/lib/turn";
 
 export interface IncomeEntryInput {
   nation: string;
@@ -52,6 +53,39 @@ async function seedEntriesWithStartIncome(roundId: string, scenario: string) {
   });
 }
 
+/**
+ * Seed the live NationState rows for a campaign. Each nation's treasury starts
+ * at its scenario starting IPC — the cash it has on hand to spend on turn 1.
+ * Idempotent: skips nations that already have a state row.
+ */
+async function seedNationStates(campaignId: string, scenario: string) {
+  const start = SCENARIO_START_INCOME[scenario] ?? {};
+  const existing = await prisma.nationState.findMany({
+    where: { campaignId },
+    select: { nation: true },
+  });
+  const have = new Set(existing.map((s) => s.nation));
+  const missing = POWERS.filter((p) => !have.has(p.key));
+  if (missing.length) {
+    await prisma.nationState.createMany({
+      data: missing.map((p) => ({ campaignId, nation: p.key, ipc: start[p.key] ?? 0 })),
+    });
+  }
+}
+
+/**
+ * Ensure a campaign has its live NationState rows (lazy backfill for campaigns
+ * created before the turn engine existed). Returns the states for the campaign.
+ */
+export async function ensureNationStates(campaignId: string) {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { scenario: true },
+  });
+  if (!campaign) throw new Error("Campaign not found.");
+  await seedNationStates(campaignId, campaign.scenario);
+}
+
 export async function createCampaign(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim() || "Untitled Campaign";
   const opponent = String(formData.get("opponent") ?? "").trim() || null;
@@ -67,6 +101,7 @@ export async function createCampaign(formData: FormData) {
     data: { campaignId: campaign.id, number: 1 },
   });
   await seedEntriesWithStartIncome(round.id, scenario);
+  await seedNationStates(campaign.id, scenario);
 
   revalidatePath("/campaigns");
   redirect(`/campaigns/${campaign.id}`);
@@ -128,6 +163,7 @@ export async function createCampaignWithPlayers(input: CreateCampaignInput) {
     data: { campaignId: campaign.id, number: 1 },
   });
   await seedEntriesWithStartIncome(round.id, input.scenario);
+  await seedNationStates(campaign.id, input.scenario);
 
   revalidatePath("/campaigns");
   redirect(`/campaigns/${campaign.id}`);
@@ -387,4 +423,199 @@ export async function saveRound(input: SaveRoundInput) {
   await prisma.campaign.update({ where: { id: input.campaignId }, data: {} });
   revalidatePath(`/campaigns/${input.campaignId}`);
   revalidatePath(`/campaigns/${input.campaignId}/round/${input.number}`);
+}
+
+// ───────────────────────────── Turn engine ──────────────────────────────────
+
+function revalidateTurn(campaignId: string) {
+  revalidatePath(`/campaigns/${campaignId}/turn`);
+  revalidatePath(`/campaigns/${campaignId}`);
+}
+
+async function getNationState(campaignId: string, nation: string) {
+  const state = await prisma.nationState.findUnique({
+    where: { campaignId_nation: { campaignId, nation } },
+  });
+  if (!state) throw new Error(`No live state for ${nation} — campaign not seeded.`);
+  return state;
+}
+
+/**
+ * Phase 2 — Purchase Units. Validates the order is affordable against the
+ * nation's treasury, deducts the cost, and records the units as pending
+ * placement (Phase 6 mobilizes them). Purchases accumulate within the phase.
+ */
+export async function purchaseUnits(input: {
+  campaignId: string;
+  nation: string;
+  units: { unitType: string; quantity: number }[];
+}) {
+  const items = input.units.filter(
+    (u) => u.quantity > 0 && UNITS_BY_KEY[u.unitType],
+  );
+  if (!items.length) return;
+
+  const cost = items.reduce(
+    (sum, u) => sum + UNITS_BY_KEY[u.unitType].cost * u.quantity,
+    0,
+  );
+  const state = await getNationState(input.campaignId, input.nation);
+  if (cost > state.ipc) {
+    throw new Error(
+      `Insufficient IPC: order costs ${cost}, ${input.nation} holds ${state.ipc}.`,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.nationState.update({
+      where: { id: state.id },
+      data: { ipc: { decrement: cost } },
+    });
+    for (const u of items) {
+      const existing = await tx.pendingUnit.findFirst({
+        where: { nationStateId: state.id, unitType: u.unitType },
+      });
+      if (existing) {
+        await tx.pendingUnit.update({
+          where: { id: existing.id },
+          data: { quantity: existing.quantity + u.quantity },
+        });
+      } else {
+        await tx.pendingUnit.create({
+          data: { nationStateId: state.id, unitType: u.unitType, quantity: u.quantity },
+        });
+      }
+    }
+  });
+
+  revalidateTurn(input.campaignId);
+}
+
+/** Undo a turn's purchases: refund the pending units' cost and clear them. */
+export async function clearPendingPurchases(input: {
+  campaignId: string;
+  nation: string;
+}) {
+  const state = await prisma.nationState.findUnique({
+    where: { campaignId_nation: { campaignId: input.campaignId, nation: input.nation } },
+    include: { pending: true },
+  });
+  if (!state) return;
+  const refund = state.pending.reduce(
+    (sum, p) => sum + (UNITS_BY_KEY[p.unitType]?.cost ?? 0) * p.quantity,
+    0,
+  );
+  await prisma.$transaction([
+    prisma.pendingUnit.deleteMany({ where: { nationStateId: state.id } }),
+    prisma.nationState.update({
+      where: { id: state.id },
+      data: { ipc: { increment: refund } },
+    }),
+  ]);
+  revalidateTurn(input.campaignId);
+}
+
+/**
+ * Phase 7 — Collect Income. Adds `amount` IPC to the nation's treasury and
+ * records it as the round's income figure for the analytics ledger.
+ */
+export async function collectIncome(input: {
+  campaignId: string;
+  nation: string;
+  roundNumber: number;
+  amount: number;
+}) {
+  const amount = Math.max(0, Math.round(input.amount));
+  const state = await getNationState(input.campaignId, input.nation);
+  const round = await prisma.round.findUnique({
+    where: { campaignId_number: { campaignId: input.campaignId, number: input.roundNumber } },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.nationState.update({
+      where: { id: state.id },
+      data: { ipc: { increment: amount } },
+    });
+    if (round) {
+      await tx.nationEntry.upsert({
+        where: { roundId_nation: { roundId: round.id, nation: input.nation } },
+        create: { roundId: round.id, nation: input.nation, income: amount },
+        update: { income: amount },
+      });
+    }
+  });
+
+  revalidateTurn(input.campaignId);
+}
+
+/**
+ * Advance the turn pointer one phase. Walking off Phase 7 hands the turn to the
+ * next power; wrapping past the last power opens a fresh round (carrying income
+ * forward, mirroring addRound).
+ */
+export async function advancePhase(formData: FormData) {
+  const campaignId = String(formData.get("campaignId"));
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) throw new Error("Campaign not found.");
+
+  const result = advance(
+    campaign.activePowerKey,
+    campaign.activePhase,
+    campaign.includeResearch,
+  );
+
+  if (result.roundEnded) {
+    const last = await prisma.round.findFirst({
+      where: { campaignId },
+      orderBy: { number: "desc" },
+      include: { entries: true },
+    });
+    const number = (last?.number ?? 0) + 1;
+    const round = await prisma.round.create({ data: { campaignId, number } });
+    if (last?.entries?.length) {
+      await prisma.nationEntry.createMany({
+        data: last.entries.map((e) => ({
+          roundId: round.id,
+          nation: e.nation,
+          income: e.income,
+        })),
+      });
+    } else {
+      await seedEntries(round.id);
+    }
+  }
+
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { activePowerKey: result.activePowerKey, activePhase: result.activePhase },
+  });
+  revalidateTurn(campaignId);
+}
+
+/** Jump the pointer directly to a phase of the active power (stepper clicks). */
+export async function goToPhase(formData: FormData) {
+  const campaignId = String(formData.get("campaignId"));
+  const phase = Number(formData.get("phase"));
+  if (!Number.isFinite(phase) || phase < 1 || phase > 7) return;
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { activePhase: phase },
+  });
+  revalidateTurn(campaignId);
+}
+
+/** Hand the turn to a specific power (used when starting a campaign's first turn). */
+export async function setActivePower(formData: FormData) {
+  const campaignId = String(formData.get("campaignId"));
+  const powerKey = String(formData.get("powerKey"));
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { includeResearch: true },
+  });
+  if (!campaign) return;
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { activePowerKey: powerKey, activePhase: startPhase(campaign.includeResearch) },
+  });
+  revalidateTurn(campaignId);
 }
