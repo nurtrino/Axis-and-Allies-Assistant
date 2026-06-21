@@ -28,8 +28,8 @@ export interface Phase {
 export const PHASES: Phase[] = [
   { n: 1, key: "research", name: "Research & Development", short: "R&D", optional: true, implemented: false },
   { n: 2, key: "purchase", name: "Purchase Units", short: "Purchase", implemented: true },
-  { n: 3, key: "combatMove", name: "Combat Move", short: "Combat Move", implemented: false },
-  { n: 4, key: "combat", name: "Conduct Combat", short: "Conduct Combat", implemented: false },
+  { n: 3, key: "combatMove", name: "Combat Move", short: "Combat Move", implemented: true },
+  { n: 4, key: "combat", name: "Conduct Combat", short: "Conduct Combat", implemented: true },
   { n: 5, key: "noncombatMove", name: "Noncombat Move", short: "Noncombat", implemented: false },
   { n: 6, key: "mobilize", name: "Mobilize New Units", short: "Mobilize", implemented: false },
   { n: 7, key: "income", name: "Collect Income", short: "Income", implemented: true },

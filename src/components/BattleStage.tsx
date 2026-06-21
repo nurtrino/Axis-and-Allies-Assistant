@@ -239,18 +239,39 @@ const STATUS_TEXT: Record<string, { label: string; color: string }> = {
 
 export default function BattleStage({
   onLogResult,
+  initialAttacker,
+  initialAmphibious,
+  seedKey,
 }: {
   onLogResult?: (data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string; status: string }) => void;
+  /** Pre-seed the attacker stack (e.g. from a declared combat-move order). */
+  initialAttacker?: Stack;
+  initialAmphibious?: boolean;
+  /** Changing this re-applies the seed and returns to setup (new order loaded). */
+  seedKey?: string;
 }) {
   const [mode, setMode] = useState<"setup" | "battle">("setup");
-  const [attackerStack, setAttackerStack] = useState<Stack>({});
+  const [attackerStack, setAttackerStack] = useState<Stack>(initialAttacker ?? {});
   const [defenderStack, setDefenderStack] = useState<Stack>({});
-  const [amphibious, setAmphibious] = useState(false);
+  const [amphibious, setAmphibious] = useState(initialAmphibious ?? false);
   const [state, setState] = useState<BattleState | null>(null);
   const [rolling, setRolling] = useState(false);
   const [diceReady, setDiceReady] = useState(false);
   const [hitFlash, setHitFlash] = useState<{ n: number; side: Side; key: number } | null>(null);
   const [padRoll, setPadRoll] = useState<{ rolls: { value: number; hit: boolean }[]; key: number } | null>(null);
+
+  // Re-seed when a different order is loaded into the battle page.
+  const seededRef = useRef<string | undefined>(seedKey);
+  useEffect(() => {
+    if (seedKey === undefined || seedKey === seededRef.current) return;
+    seededRef.current = seedKey;
+    setAttackerStack(initialAttacker ?? {});
+    setDefenderStack({});
+    setAmphibious(initialAmphibious ?? false);
+    setState(null);
+    setMode("setup");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey]);
 
   const boxRef = useRef<any>(null);
   const flashKey = useRef(0);

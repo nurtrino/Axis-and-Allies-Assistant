@@ -549,6 +549,68 @@ export async function collectIncome(input: {
 }
 
 /**
+ * Phase 3 — Combat Move. Declare an attack: the active power commits an
+ * attacking stack against a defender/territory. Resolved later on the Battle
+ * page (Phase 4). Trust-and-record — no legality checks against the board.
+ */
+export async function declareCombatMove(input: {
+  campaignId: string;
+  roundNumber: number;
+  attackerNation: string;
+  defenderNation: string;
+  territory: string;
+  territoryIpc: number;
+  units: Record<string, number>;
+  amphibious: boolean;
+}) {
+  const units = Object.fromEntries(
+    Object.entries(input.units).filter(
+      ([k, q]) => q > 0 && UNITS_BY_KEY[k],
+    ),
+  );
+  if (Object.keys(units).length === 0) {
+    throw new Error("Declare at least one attacking unit.");
+  }
+  await prisma.combatMoveOrder.create({
+    data: {
+      campaignId: input.campaignId,
+      roundNumber: input.roundNumber,
+      attackerNation: input.attackerNation,
+      defenderNation: input.defenderNation,
+      territory: input.territory.trim() || null,
+      territoryIpc: Math.max(0, Math.round(input.territoryIpc)),
+      units,
+      amphibious: input.amphibious,
+    },
+  });
+  revalidateTurn(input.campaignId);
+  revalidatePath(`/campaigns/${input.campaignId}/battle`);
+}
+
+/** Remove a declared (and not-yet-resolved) combat move. */
+export async function deleteCombatMove(formData: FormData) {
+  const id = String(formData.get("id"));
+  const campaignId = String(formData.get("campaignId"));
+  await prisma.combatMoveOrder.delete({ where: { id } });
+  revalidateTurn(campaignId);
+  revalidatePath(`/campaigns/${campaignId}/battle`);
+}
+
+/** Mark a combat order resolved (called when its battle finishes). */
+export async function markCombatResolved(input: {
+  campaignId: string;
+  orderId: string;
+  resultStatus: string;
+}) {
+  await prisma.combatMoveOrder.update({
+    where: { id: input.orderId },
+    data: { status: "RESOLVED", resultStatus: input.resultStatus },
+  });
+  revalidateTurn(input.campaignId);
+  revalidatePath(`/campaigns/${input.campaignId}/battle`);
+}
+
+/**
  * Advance the turn pointer one phase. Walking off Phase 7 hands the turn to the
  * next power; wrapping past the last power opens a fresh round (carrying income
  * forward, mirroring addRound).

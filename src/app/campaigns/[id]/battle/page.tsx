@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { POWERS } from "@/lib/anniversary.config";
 import { resolvePlayers } from "@/lib/players";
 import CampaignNav from "@/components/CampaignNav";
-import CampaignBattle from "@/components/CampaignBattle";
+import CampaignBattle, { type InitialOrder } from "@/components/CampaignBattle";
+import type { Stack } from "@/lib/battle";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,10 @@ export default async function BattlePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ as?: string }>;
+  searchParams: Promise<{ as?: string; order?: string }>;
 }) {
   const { id } = await params;
-  const { as } = await searchParams;
+  const { as, order } = await searchParams;
 
   const campaign = await prisma.campaign.findUnique({
     where: { id },
@@ -34,6 +35,24 @@ export default async function BattlePage({
   const roundNumbers = campaign.rounds.map((r) => r.number);
   const defaultRound = roundNumbers.length ? Math.max(...roundNumbers) : 1;
   const powers = POWERS.map((p) => ({ key: p.key, name: p.name, color: p.color }));
+
+  // When launched from a declared combat-move order, pre-seed the battle.
+  let initialOrder: InitialOrder | undefined;
+  if (order) {
+    const o = await prisma.combatMoveOrder.findUnique({ where: { id: order } });
+    if (o && o.campaignId === id && o.status !== "RESOLVED") {
+      initialOrder = {
+        id: o.id,
+        attackerNation: o.attackerNation,
+        defenderNation: o.defenderNation,
+        territory: o.territory ?? "",
+        territoryIpc: o.territoryIpc,
+        units: (o.units ?? {}) as Stack,
+        amphibious: o.amphibious,
+        roundNumber: o.roundNumber,
+      };
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -54,6 +73,7 @@ export default async function BattlePage({
         rounds={roundNumbers.length ? roundNumbers : [1]}
         powers={powers}
         defaultRound={defaultRound}
+        initialOrder={initialOrder}
       />
     </div>
   );

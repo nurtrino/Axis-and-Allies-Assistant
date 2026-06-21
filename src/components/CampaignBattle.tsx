@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { logBattleLosses, logBomberRaid, logTerritoryCapture } from "@/app/actions";
+import {
+  logBattleLosses,
+  logBomberRaid,
+  logTerritoryCapture,
+  markCombatResolved,
+} from "@/app/actions";
 import BattleStage from "./BattleStage";
 import BombingRaid from "./BombingRaid";
 import type { Stack } from "@/lib/battle";
@@ -12,22 +17,41 @@ interface PowerOpt {
   color: string;
 }
 
+export interface InitialOrder {
+  id: string;
+  attackerNation: string;
+  defenderNation: string;
+  territory: string;
+  territoryIpc: number;
+  units: Stack;
+  amphibious: boolean;
+  roundNumber: number;
+}
+
 export default function CampaignBattle({
   campaignId,
   rounds,
   powers,
   defaultRound,
+  initialOrder,
 }: {
   campaignId: string;
   rounds: number[];
   powers: PowerOpt[];
   defaultRound: number;
+  initialOrder?: InitialOrder;
 }) {
-  const [attackerNation, setAttackerNation] = useState(powers[0]?.key ?? "");
-  const [defenderNation, setDefenderNation] = useState(powers[1]?.key ?? "");
-  const [roundNumber, setRoundNumber] = useState(defaultRound);
-  const [territory, setTerritory] = useState("");
-  const [territoryIpc, setTerritoryIpc] = useState(0);
+  const [attackerNation, setAttackerNation] = useState(
+    initialOrder?.attackerNation ?? powers[0]?.key ?? "",
+  );
+  const [defenderNation, setDefenderNation] = useState(
+    initialOrder?.defenderNation ?? powers[1]?.key ?? "",
+  );
+  const [roundNumber, setRoundNumber] = useState(
+    initialOrder?.roundNumber ?? defaultRound,
+  );
+  const [territory, setTerritory] = useState(initialOrder?.territory ?? "");
+  const [territoryIpc, setTerritoryIpc] = useState(initialOrder?.territoryIpc ?? 0);
   const [logged, setLogged] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -57,8 +81,18 @@ export default function CampaignBattle({
         captureNote = ` · ${nameOf(attackerNation)} gains ${territoryIpc} IPC${territory ? ` (${territory})` : ""}, ${nameOf(defenderNation)} loses ${territoryIpc} IPC`;
       }
 
+      let orderNote = "";
+      if (initialOrder) {
+        await markCombatResolved({
+          campaignId,
+          orderId: initialOrder.id,
+          resultStatus: data.status,
+        });
+        orderNote = " · combat order marked resolved";
+      }
+
       setLogged(
-        `Recorded to Round ${roundNumber}: ${nameOf(attackerNation)} and ${nameOf(defenderNation)} losses added to the ledger.${captureNote}`,
+        `Recorded to Round ${roundNumber}: ${nameOf(attackerNation)} and ${nameOf(defenderNation)} losses added to the ledger.${captureNote}${orderNote}`,
       );
     });
   }
@@ -124,7 +158,21 @@ export default function CampaignBattle({
       )}
       {pending && <div className="label">Saving…</div>}
 
-      <BattleStage onLogResult={handleLog} />
+      {initialOrder && (
+        <div className="panel p-2 text-sm" style={{ color: "var(--accent)" }}>
+          ▸ Resolving declared attack: {nameOf(initialOrder.attackerNation)} →{" "}
+          {nameOf(initialOrder.defenderNation)}
+          {initialOrder.territory ? ` (${initialOrder.territory})` : ""}. The
+          attacker stack is pre-loaded — add the defender&apos;s units, then begin.
+        </div>
+      )}
+
+      <BattleStage
+        onLogResult={handleLog}
+        initialAttacker={initialOrder?.units}
+        initialAmphibious={initialOrder?.amphibious}
+        seedKey={initialOrder?.id}
+      />
 
       <BombingRaid
         onSave={(data) =>

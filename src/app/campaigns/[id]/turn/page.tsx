@@ -30,6 +30,7 @@ export default async function TurnPage({
       players: { include: { assignments: true }, orderBy: { sortOrder: "asc" } },
       rounds: { orderBy: { number: "asc" }, include: { entries: true } },
       nationStates: { include: { pending: true } },
+      combatMoves: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!campaign) notFound();
@@ -70,6 +71,28 @@ export default async function TurnPage({
 
   const controller = controllerByPower.get(activeKey) ?? null;
   const isMyTurn = selected ? selected.powerKeys.includes(activeKey) : true;
+
+  // Combat orders declared by the active power in the current round.
+  const combatOrders = campaign.combatMoves
+    .filter((o) => o.attackerNation === activeKey && o.roundNumber === currentNum)
+    .map((o) => ({
+      id: o.id,
+      defenderNation: o.defenderNation,
+      territory: o.territory,
+      territoryIpc: o.territoryIpc,
+      units: (o.units ?? {}) as Record<string, number>,
+      amphibious: o.amphibious,
+      status: o.status,
+      resultStatus: o.resultStatus,
+    }));
+
+  const allPowers = POWERS.map((p) => ({
+    key: p.key,
+    name: p.name,
+    color: p.color,
+    flag: p.flag,
+    coalition: p.coalition,
+  }));
 
   return (
     <div className="space-y-5">
@@ -169,6 +192,8 @@ export default async function TurnPage({
         pending={pending}
         defaultIncome={defaultIncome}
         units={portalUnits}
+        powers={allPowers}
+        combatOrders={combatOrders}
       />
     </div>
   );

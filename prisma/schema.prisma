@@ -48,6 +48,7 @@ model Campaign {
   players     Player[]
   assignments PowerAssignment[]
   nationStates NationState[]
+  combatMoves CombatMoveOrder[]
 }
 
 // Live, cross-round state for a power: its IPC treasury and unit inventory.
@@ -81,6 +82,30 @@ model UnitStock {
 
   @@unique([nationStateId, unitType])
   @@index([nationStateId])
+}
+
+// A declared attack from Phase 3 (Combat Move). The active power commits an
+// attacking stack against a target; Phase 4 (Conduct Combat) resolves each one
+// on the shared Battle page, which seeds from this order and marks it RESOLVED.
+// `units` is a Stack ({ unitType: quantity }) — JSON keeps it position-agnostic
+// until the board model lands.
+model CombatMoveOrder {
+  id             String   @id @default(cuid())
+  campaign       Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId     String
+  roundNumber    Int
+  attackerNation String
+  defenderNation String
+  territory      String?
+  territoryIpc   Int      @default(0)
+  units          Json     // Stack: { [unitType]: quantity }
+  amphibious     Boolean  @default(false)
+  // "PENDING" | "RESOLVED"
+  status         String   @default("PENDING")
+  resultStatus   String? // battle engine status when resolved
+  createdAt      DateTime @default(now())
+
+  @@index([campaignId, roundNumber])
 }
 
 // Units purchased in Phase 2 but not yet placed. Phase 6 (Mobilize) moves these
