@@ -611,6 +611,46 @@ export async function markCombatResolved(input: {
 }
 
 /**
+ * Phase 5 — Noncombat Move. Record a reposition (units shifted from one
+ * territory to another without fighting). Trust-and-record: a turn log that
+ * doesn't yet change the national pool, but captures intent for the board model.
+ */
+export async function recordMovement(input: {
+  campaignId: string;
+  roundNumber: number;
+  nation: string;
+  fromTerritory: string;
+  toTerritory: string;
+  units: Record<string, number>;
+}) {
+  const units = Object.fromEntries(
+    Object.entries(input.units).filter(([k, q]) => q > 0 && UNITS_BY_KEY[k]),
+  );
+  if (Object.keys(units).length === 0) {
+    throw new Error("Add at least one unit to the move.");
+  }
+  await prisma.movement.create({
+    data: {
+      campaignId: input.campaignId,
+      roundNumber: input.roundNumber,
+      nation: input.nation,
+      fromTerritory: input.fromTerritory.trim() || null,
+      toTerritory: input.toTerritory.trim() || null,
+      units,
+    },
+  });
+  revalidateTurn(input.campaignId);
+}
+
+/** Remove a recorded noncombat move. */
+export async function deleteMovement(formData: FormData) {
+  const id = String(formData.get("id"));
+  const campaignId = String(formData.get("campaignId"));
+  await prisma.movement.delete({ where: { id } });
+  revalidateTurn(campaignId);
+}
+
+/**
  * Phase 6 — Mobilize New Units. Commits everything purchased this turn
  * (PendingUnit) into the nation's live inventory (UnitStock), then clears the
  * holding pen. With no board model yet, units land in a single national pool.

@@ -49,6 +49,7 @@ model Campaign {
   assignments PowerAssignment[]
   nationStates NationState[]
   combatMoves CombatMoveOrder[]
+  movements   Movement[]
 }
 
 // Live, cross-round state for a power: its IPC treasury and unit inventory.
@@ -104,6 +105,23 @@ model CombatMoveOrder {
   status         String   @default("PENDING")
   resultStatus   String? // battle engine status when resolved
   createdAt      DateTime @default(now())
+
+  @@index([campaignId, roundNumber])
+}
+
+// A Phase 5 (Noncombat Move) reposition: units a power shifts between
+// territories without fighting. Trust-and-record — a turn log that does not yet
+// affect inventory (single national pool) but seeds the future board model.
+model Movement {
+  id            String   @id @default(cuid())
+  campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId    String
+  roundNumber   Int
+  nation        String
+  fromTerritory String?
+  toTerritory   String?
+  units         Json     // Stack: { [unitType]: quantity }
+  createdAt     DateTime @default(now())
 
   @@index([campaignId, roundNumber])
 }

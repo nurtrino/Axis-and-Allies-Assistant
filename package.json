@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "setup": "prisma generate && prisma migrate deploy"
+    "setup": "prisma generate && prisma migrate deploy",
+    "verify:turn": "tsx --tsconfig tsconfig.verify.json scripts/verify-turn.mts"
   },
   "dependencies": {
     "@3d-dice/dice-box": "^1.1.4",

@@ -11,6 +11,8 @@ import {
   declareCombatMove,
   deleteCombatMove,
   mobilizeUnits,
+  recordMovement,
+  deleteMovement,
 } from "@/app/actions";
 import UnitIcon from "@/components/UnitIcon";
 
@@ -37,6 +39,12 @@ export interface CombatOrder {
   status: string;
   resultStatus: string | null;
 }
+export interface MovementEntry {
+  id: string;
+  fromTerritory: string | null;
+  toTerritory: string | null;
+  units: Record<string, number>;
+}
 export interface TurnPortalProps {
   campaignId: string;
   roundNumber: number;
@@ -51,6 +59,7 @@ export interface TurnPortalProps {
   units: PortalUnit[];
   powers: PortalPower[];
   combatOrders: CombatOrder[];
+  movements: MovementEntry[];
 }
 
 const fmtIpc = (n: number) => `${n} IPC`;
@@ -78,9 +87,10 @@ export default function TurnPortal(props: TurnPortalProps) {
       {phase.key === "purchase" && <PurchasePanel {...props} />}
       {phase.key === "combatMove" && <CombatMovePanel {...props} />}
       {phase.key === "combat" && <ConductCombatPanel {...props} />}
+      {phase.key === "noncombatMove" && <NoncombatMovePanel {...props} />}
       {phase.key === "mobilize" && <MobilizePanel {...props} />}
       {phase.key === "income" && <IncomePanel {...props} />}
-      {!["purchase", "combatMove", "combat", "mobilize", "income"].includes(phase.key) && (
+      {!["purchase", "combatMove", "combat", "noncombatMove", "mobilize", "income"].includes(phase.key) && (
         <Placeholder phase={phase} />
       )}
 
@@ -567,6 +577,140 @@ function ConductCombatPanel(props: TurnPortalProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function NoncombatMovePanel(props: TurnPortalProps) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  const totalUnits = Object.values(qty).reduce((s, q) => s + q, 0);
+
+  function record() {
+    setErr(null);
+    start(async () => {
+      try {
+        await recordMovement({
+          campaignId: props.campaignId,
+          roundNumber: props.roundNumber,
+          nation: props.power.key,
+          fromTerritory: from,
+          toTerritory: to,
+          units: qty,
+        });
+        setQty({});
+        setFrom("");
+        setTo("");
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Failed to record move.");
+      }
+    });
+  }
+
+  function remove(id: string) {
+    const fd = new FormData();
+    fd.set("id", id);
+    fd.set("campaignId", props.campaignId);
+    start(() => deleteMovement(fd));
+  }
+
+  return (
+    <div className="panel p-5 space-y-4">
+      <h2 className="text-lg font-semibold">Phase 5 — Noncombat Move</h2>
+      <p className="label">
+        Log {props.power.name}&apos;s repositions — units shifted without
+        fighting, aircraft landing, reinforcements moving up. Recorded for the
+        turn history (it doesn&apos;t change unit counts yet).
+      </p>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label block mb-1">From</label>
+          <input
+            className="field"
+            type="text"
+            placeholder="e.g. Western Germany"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            style={{ width: 170 }}
+          />
+        </div>
+        <div>
+          <label className="label block mb-1">To</label>
+          <input
+            className="field"
+            type="text"
+            placeholder="e.g. Poland"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            style={{ width: 170 }}
+          />
+        </div>
+      </div>
+
+      <div>
+        <div className="label mb-2">Units moved</div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {props.units.map((u) => {
+            const q = qty[u.key] || 0;
+            return (
+              <div key={u.key} className="flex items-center gap-2 rounded border border-border p-2">
+                <UnitIcon unitKey={u.key} size={26} className="shrink-0" />
+                <div className="min-w-0 flex-1 text-sm font-medium truncate">{u.name}</div>
+                <div className="flex items-center gap-1">
+                  <button type="button" className="btn px-2 py-0.5" onClick={() => setQty((s) => ({ ...s, [u.key]: Math.max(0, q - 1) }))}>−</button>
+                  <input
+                    type="number"
+                    min={0}
+                    value={q}
+                    onChange={(e) => setQty((s) => ({ ...s, [u.key]: Math.max(0, Number(e.target.value) || 0) }))}
+                    className="w-12 text-center bg-surface-2 rounded border border-border py-0.5 stat"
+                  />
+                  <button type="button" className="btn px-2 py-0.5" onClick={() => setQty((s) => ({ ...s, [u.key]: q + 1 }))}>+</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-border pt-3">
+        <span className="label">{totalUnits} unit(s)</span>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={totalUnits === 0 || pending}
+          onClick={record}
+        >
+          {pending ? "Saving…" : "Record Move"}
+        </button>
+      </div>
+      {err && <div className="text-sm" style={{ color: "var(--bad)" }}>{err}</div>}
+
+      <div className="border-t border-border pt-3">
+        <div className="label mb-2">Moves this turn</div>
+        {props.movements.length === 0 ? (
+          <div className="label">No noncombat moves logged yet.</div>
+        ) : (
+          <div className="space-y-2">
+            {props.movements.map((m) => (
+              <div key={m.id} className="flex flex-wrap items-center gap-2 rounded border border-border p-2">
+                <span className="text-sm font-medium">
+                  {m.fromTerritory || "?"} → {m.toTerritory || "?"}
+                </span>
+                <UnitStackBadges units={m.units} unitMeta={props.units} />
+                <button type="button" className="label hover:text-foreground ml-auto" onClick={() => remove(m.id)} disabled={pending}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

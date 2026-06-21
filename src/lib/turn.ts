@@ -30,7 +30,7 @@ export const PHASES: Phase[] = [
   { n: 2, key: "purchase", name: "Purchase Units", short: "Purchase", implemented: true },
   { n: 3, key: "combatMove", name: "Combat Move", short: "Combat Move", implemented: true },
   { n: 4, key: "combat", name: "Conduct Combat", short: "Conduct Combat", implemented: true },
-  { n: 5, key: "noncombatMove", name: "Noncombat Move", short: "Noncombat", implemented: false },
+  { n: 5, key: "noncombatMove", name: "Noncombat Move", short: "Noncombat", implemented: true },
   { n: 6, key: "mobilize", name: "Mobilize New Units", short: "Mobilize", implemented: true },
   { n: 7, key: "income", name: "Collect Income", short: "Income", implemented: true },
 ];

@@ -31,6 +31,7 @@ export default async function TurnPage({
       rounds: { orderBy: { number: "asc" }, include: { entries: true } },
       nationStates: { include: { pending: true, stocks: true } },
       combatMoves: { orderBy: { createdAt: "asc" } },
+      movements: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!campaign) notFound();
@@ -87,6 +88,16 @@ export default async function TurnPage({
       amphibious: o.amphibious,
       status: o.status,
       resultStatus: o.resultStatus,
+    }));
+
+  // Noncombat moves logged by the active power in the current round.
+  const movements = campaign.movements
+    .filter((m) => m.nation === activeKey && m.roundNumber === currentNum)
+    .map((m) => ({
+      id: m.id,
+      fromTerritory: m.fromTerritory,
+      toTerritory: m.toTerritory,
+      units: (m.units ?? {}) as Record<string, number>,
     }));
 
   const allPowers = POWERS.map((p) => ({
@@ -198,6 +209,7 @@ export default async function TurnPage({
         units={portalUnits}
         powers={allPowers}
         combatOrders={combatOrders}
+        movements={movements}
       />
     </div>
   );
