@@ -179,29 +179,37 @@ function EventRow({ ev }: { ev: BattleEvent }) {
         )}
       </div>
       {ev.rolls.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-1.5">
+        <div className="flex flex-wrap gap-2 mt-2">
           {ev.rolls.map((r, i) => (
             <div
               key={i}
-              className="flex flex-col items-center rounded px-1.5 pt-1 pb-0.5"
+              className="flex flex-col items-center rounded-md px-2.5 pt-2 pb-1.5"
               style={{
-                background: r.hit ? "color-mix(in srgb, var(--good) 15%, transparent)" : "var(--surface-2)",
+                background: r.hit ? "color-mix(in srgb, var(--good) 16%, transparent)" : "var(--surface-2)",
                 border: `1px solid ${r.hit ? "var(--good)" : "var(--border)"}`,
-                minWidth: 30,
+                minWidth: 72,
               }}
-              title={`${UNITS_BY_KEY[r.key]?.name ?? r.key}: rolled ${r.value}, needed ${r.hitOn} or less — ${r.hit ? "HIT" : "miss"}`}
             >
-              <span style={{ color: r.hit ? "var(--good)" : "var(--muted)", lineHeight: 0 }}>
-                <UnitIcon unitKey={r.key} size={14} />
+              <span style={{ color: r.hit ? "var(--good)" : "var(--foreground)", lineHeight: 0 }}>
+                <UnitIcon unitKey={r.key} size={30} />
+              </span>
+              <span className="text-[11px] mt-1 text-center leading-tight">
+                {UNITS_BY_KEY[r.key]?.name ?? r.key}
               </span>
               <span
-                className="stat text-sm leading-none mt-0.5"
-                style={{ color: r.hit ? "var(--good)" : "var(--foreground)" }}
+                className="stat leading-none mt-1"
+                style={{ fontSize: 22, color: r.hit ? "var(--good)" : "var(--foreground)" }}
               >
                 {r.value}
               </span>
-              <span className="label" style={{ fontSize: 9, lineHeight: 1.3 }}>
-                ≤{r.hitOn} {r.hit ? "✓" : "✗"}
+              <span className="label mt-0.5" style={{ fontSize: 10 }}>
+                needs {r.hitOn} or less
+              </span>
+              <span
+                className="font-semibold mt-0.5"
+                style={{ fontSize: 11, letterSpacing: 0.5, color: r.hit ? "var(--good)" : "var(--muted)" }}
+              >
+                {r.hit ? "HIT ✓" : "MISS ✗"}
               </span>
             </div>
           ))}
@@ -342,10 +350,14 @@ export default function BattleStage({
       const box = boxRef.current;
       if (box && step.dice.length > 0) {
         box.clear();
-        const res = await box.roll([{ qty: step.dice.length, sides: 6, themeColor: step.color }]);
+        // Read the physical dice, but never let a stalled roll freeze the battle.
+        const res = await Promise.race([
+          box.roll([{ qty: step.dice.length, sides: 6, themeColor: step.color }]),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+        ]);
         values = Array.isArray(res) ? res.map((r: any) => r.value as number) : [];
       }
-      // Fallback if dice engine unavailable: software dice.
+      // Fallback if the dice engine is unavailable or stalled: software dice.
       if (values.length !== step.dice.length) {
         values = step.dice.map(() => 1 + Math.floor(Math.random() * 6));
       }
