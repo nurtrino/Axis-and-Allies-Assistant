@@ -29,7 +29,7 @@ export default async function TurnPage({
     include: {
       players: { include: { assignments: true }, orderBy: { sortOrder: "asc" } },
       rounds: { orderBy: { number: "asc" }, include: { entries: true } },
-      nationStates: { include: { pending: true } },
+      nationStates: { include: { pending: true, stocks: true } },
       combatMoves: { orderBy: { createdAt: "asc" } },
     },
   });
@@ -59,6 +59,9 @@ export default async function TurnPage({
     unitType: p.unitType,
     quantity: p.quantity,
   }));
+  const inventory = (activeState?.stocks ?? [])
+    .filter((s) => s.quantity > 0)
+    .map((s) => ({ unitType: s.unitType, quantity: s.quantity }));
   const defaultIncome =
     currentRound?.entries.find((e) => e.nation === activeKey)?.income ?? 0;
 
@@ -190,6 +193,7 @@ export default async function TurnPage({
         controller={controller}
         treasury={treasury}
         pending={pending}
+        inventory={inventory}
         defaultIncome={defaultIncome}
         units={portalUnits}
         powers={allPowers}

@@ -10,6 +10,7 @@ import {
   goToPhase,
   declareCombatMove,
   deleteCombatMove,
+  mobilizeUnits,
 } from "@/app/actions";
 import UnitIcon from "@/components/UnitIcon";
 
@@ -45,6 +46,7 @@ export interface TurnPortalProps {
   controller: string | null;
   treasury: number;
   pending: { unitType: string; quantity: number }[];
+  inventory: { unitType: string; quantity: number }[];
   defaultIncome: number;
   units: PortalUnit[];
   powers: PortalPower[];
@@ -76,8 +78,9 @@ export default function TurnPortal(props: TurnPortalProps) {
       {phase.key === "purchase" && <PurchasePanel {...props} />}
       {phase.key === "combatMove" && <CombatMovePanel {...props} />}
       {phase.key === "combat" && <ConductCombatPanel {...props} />}
+      {phase.key === "mobilize" && <MobilizePanel {...props} />}
       {phase.key === "income" && <IncomePanel {...props} />}
-      {!["purchase", "combatMove", "combat", "income"].includes(phase.key) && (
+      {!["purchase", "combatMove", "combat", "mobilize", "income"].includes(phase.key) && (
         <Placeholder phase={phase} />
       )}
 
@@ -564,6 +567,80 @@ function ConductCombatPanel(props: TurnPortalProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function MobilizePanel(props: TurnPortalProps) {
+  const [pending, start] = useTransition();
+  const toPlace = props.pending.filter((p) => p.quantity > 0);
+  const placeCount = toPlace.reduce((s, p) => s + p.quantity, 0);
+  const inventoryCount = props.inventory.reduce((s, p) => s + p.quantity, 0);
+
+  function mobilize() {
+    start(() => mobilizeUnits({ campaignId: props.campaignId, nation: props.power.key }));
+  }
+
+  return (
+    <div className="panel p-5 space-y-4">
+      <h2 className="text-lg font-semibold">Phase 6 — Mobilize New Units</h2>
+      <p className="label">
+        Place the units {props.power.name} purchased this turn onto the board.
+        They move from the holding pen into the national inventory.
+      </p>
+
+      <div className="border border-border rounded p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="label">Awaiting placement</span>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={placeCount === 0 || pending}
+            onClick={mobilize}
+          >
+            {pending ? "Placing…" : `Mobilize ${placeCount} unit(s)`}
+          </button>
+        </div>
+        {toPlace.length === 0 ? (
+          <div className="label">
+            Nothing to place — no units were purchased this turn (or they&apos;re
+            already mobilized).
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {toPlace.map((p) => {
+              const u = props.units.find((x) => x.key === p.unitType);
+              return (
+                <span key={p.unitType} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-sm">
+                  <UnitIcon unitKey={p.unitType} size={20} />
+                  {u?.name ?? p.unitType} ×{p.quantity}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="label mb-2">
+          {props.power.name} inventory — {inventoryCount} unit(s) on the board
+        </div>
+        {props.inventory.length === 0 ? (
+          <div className="label">No units tracked yet. Mobilized units appear here.</div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {props.inventory.map((p) => {
+              const u = props.units.find((x) => x.key === p.unitType);
+              return (
+                <span key={p.unitType} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-sm">
+                  <UnitIcon unitKey={p.unitType} size={20} />
+                  {u?.name ?? p.unitType} ×{p.quantity}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -611,6 +611,33 @@ export async function markCombatResolved(input: {
 }
 
 /**
+ * Phase 6 — Mobilize New Units. Commits everything purchased this turn
+ * (PendingUnit) into the nation's live inventory (UnitStock), then clears the
+ * holding pen. With no board model yet, units land in a single national pool.
+ */
+export async function mobilizeUnits(input: { campaignId: string; nation: string }) {
+  const state = await prisma.nationState.findUnique({
+    where: { campaignId_nation: { campaignId: input.campaignId, nation: input.nation } },
+    include: { pending: true },
+  });
+  if (!state || state.pending.length === 0) return;
+
+  await prisma.$transaction(async (tx) => {
+    for (const p of state.pending) {
+      if (p.quantity <= 0) continue;
+      await tx.unitStock.upsert({
+        where: { nationStateId_unitType: { nationStateId: state.id, unitType: p.unitType } },
+        create: { nationStateId: state.id, unitType: p.unitType, quantity: p.quantity },
+        update: { quantity: { increment: p.quantity } },
+      });
+    }
+    await tx.pendingUnit.deleteMany({ where: { nationStateId: state.id } });
+  });
+
+  revalidateTurn(input.campaignId);
+}
+
+/**
  * Advance the turn pointer one phase. Walking off Phase 7 hands the turn to the
  * next power; wrapping past the last power opens a fresh round (carrying income
  * forward, mirroring addRound).
