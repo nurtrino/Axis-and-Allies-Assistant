@@ -13,6 +13,9 @@ export async function GET(
         orderBy: { number: "asc" },
         include: { entries: { include: { losses: true, raids: true } } },
       },
+      nationStates: { include: { stocks: true, pending: true } },
+      combatMoves: { orderBy: { createdAt: "asc" } },
+      movements: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!campaign) {
@@ -24,7 +27,7 @@ export async function GET(
 
   const slug = campaign.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "campaign";
   const body = JSON.stringify(
-    { exportedFrom: "War Ledger", edition: "Anniversary", campaign },
+    { exportedFrom: "War Ledger", edition: "Anniversary", version: 2, campaign },
     null,
     2,
   );

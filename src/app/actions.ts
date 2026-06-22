@@ -169,6 +169,206 @@ export async function createCampaignWithPlayers(input: CreateCampaignInput) {
   redirect(`/campaigns/${campaign.id}`);
 }
 
+// ───────────────────────────── Import / Load ────────────────────────────────
+
+const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
+const int = (v: unknown, fallback = 0) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? n : fallback;
+};
+const intOrNull = (v: unknown) =>
+  v === null || v === undefined ? null : int(v);
+const bool = (v: unknown, fallback = false) =>
+  typeof v === "boolean" ? v : fallback;
+type Dict = Record<string, unknown>;
+const asArr = (v: unknown): Dict[] => (Array.isArray(v) ? (v as Dict[]) : []);
+const asObj = (v: unknown): Dict => (v && typeof v === "object" ? (v as Dict) : {});
+/** Coerce an imported value into a clean unit Stack ({ unitType: positiveInt }). */
+function unitStack(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, q] of Object.entries(asObj(v))) {
+    const n = int(q);
+    if (UNITS_BY_KEY[k] && n > 0) out[k] = n;
+  }
+  return out;
+}
+
+/**
+ * Recreate a full campaign from an exported JSON file (see the export route).
+ * Everything is rebuilt with fresh IDs, so imports never collide and can also
+ * be used to clone a game. Accepts the whole exported wrapper or a bare
+ * campaign object. Tolerant of older v1 exports that lack the live-state tables.
+ */
+export async function importCampaign(raw: unknown): Promise<string> {
+  const root = asObj(raw);
+  const c = asObj(root.campaign ?? root); // accept {campaign:{…}} or a bare campaign
+  if (!c || Object.keys(c).length === 0) {
+    throw new Error("Could not read a campaign from that file.");
+  }
+
+  const created = await prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.create({
+      data: {
+        name: str(c.name, "Imported Campaign") + " (imported)",
+        opponent: c.opponent == null ? null : str(c.opponent),
+        side: str(c.side, "ALLIES"),
+        scenario: str(c.scenario, "Y1942"),
+        trackingMode: str(c.trackingMode, "DETAILED"),
+        victoryCityGoal: int(c.victoryCityGoal, 15),
+        includeResearch: bool(c.includeResearch, true),
+        status: str(c.status, "ACTIVE"),
+        activePowerKey: str(c.activePowerKey, "USSR"),
+        activePhase: int(c.activePhase, 2),
+      },
+    });
+
+    // Players + their power assignments (assignments reference the new player).
+    for (const p of asArr(c.players)) {
+      const player = await tx.player.create({
+        data: {
+          campaignId: campaign.id,
+          name: str(p.name, "Player"),
+          sortOrder: int(p.sortOrder, 0),
+        },
+      });
+      const keys = asArr(p.assignments)
+        .map((a) => str(a.powerKey))
+        .filter(Boolean);
+      if (keys.length) {
+        await tx.powerAssignment.createMany({
+          data: keys.map((powerKey) => ({
+            campaignId: campaign.id,
+            playerId: player.id,
+            powerKey,
+          })),
+        });
+      }
+    }
+
+    // Rounds → nation entries → losses / raids.
+    for (const r of asArr(c.rounds)) {
+      const round = await tx.round.create({
+        data: {
+          campaignId: campaign.id,
+          number: int(r.number, 1),
+          notes: r.notes == null ? null : str(r.notes),
+          tcEuropeOwned: intOrNull(r.tcEuropeOwned),
+          tcEuropeTotal: intOrNull(r.tcEuropeTotal),
+          tcAsiaOwned: intOrNull(r.tcAsiaOwned),
+          tcAsiaTotal: intOrNull(r.tcAsiaTotal),
+          tcAmericasOwned: intOrNull(r.tcAmericasOwned),
+          tcAmericasTotal: intOrNull(r.tcAmericasTotal),
+          vcAxis: intOrNull(r.vcAxis),
+          vcAllies: intOrNull(r.vcAllies),
+        },
+      });
+      for (const e of asArr(r.entries)) {
+        const entry = await tx.nationEntry.create({
+          data: {
+            roundId: round.id,
+            nation: str(e.nation),
+            income: int(e.income),
+            objectiveBonus: int(e.objectiveBonus),
+            purchases: int(e.purchases),
+            ipcRemaining: int(e.ipcRemaining),
+            attackPower: int(e.attackPower),
+            ipcLost: int(e.ipcLost),
+          },
+        });
+        const losses = asArr(e.losses)
+          .map((l) => ({ unitType: str(l.unitType), quantity: int(l.quantity) }))
+          .filter((l) => l.unitType && l.quantity > 0);
+        if (losses.length) {
+          await tx.loss.createMany({
+            data: losses.map((l) => ({ nationEntryId: entry.id, ...l })),
+          });
+        }
+        const raids = asArr(e.raids).map((rd) => ({
+          nationEntryId: entry.id,
+          bombers: int(rd.bombers, 1),
+          damage: int(rd.damage),
+          bombersLost: int(rd.bombersLost),
+        }));
+        if (raids.length) await tx.bomberRaid.createMany({ data: raids });
+      }
+    }
+
+    // Live state: treasuries + inventory + pending (v2 exports).
+    for (const s of asArr(c.nationStates)) {
+      const state = await tx.nationState.create({
+        data: {
+          campaignId: campaign.id,
+          nation: str(s.nation),
+          ipc: int(s.ipc),
+        },
+      });
+      const stocks = asArr(s.stocks)
+        .map((u) => ({ unitType: str(u.unitType), quantity: int(u.quantity) }))
+        .filter((u) => u.unitType && u.quantity > 0);
+      if (stocks.length) {
+        await tx.unitStock.createMany({
+          data: stocks.map((u) => ({ nationStateId: state.id, ...u })),
+        });
+      }
+      const pend = asArr(s.pending)
+        .map((u) => ({ unitType: str(u.unitType), quantity: int(u.quantity) }))
+        .filter((u) => u.unitType && u.quantity > 0);
+      if (pend.length) {
+        await tx.pendingUnit.createMany({
+          data: pend.map((u) => ({ nationStateId: state.id, ...u })),
+        });
+      }
+    }
+
+    // Declared combat orders + noncombat movements (v2 exports).
+    for (const o of asArr(c.combatMoves)) {
+      await tx.combatMoveOrder.create({
+        data: {
+          campaignId: campaign.id,
+          roundNumber: int(o.roundNumber, 1),
+          attackerNation: str(o.attackerNation),
+          defenderNation: str(o.defenderNation),
+          territory: o.territory == null ? null : str(o.territory),
+          territoryIpc: int(o.territoryIpc),
+          units: unitStack(o.units),
+          amphibious: bool(o.amphibious),
+          status: str(o.status, "PENDING"),
+          resultStatus: o.resultStatus == null ? null : str(o.resultStatus),
+        },
+      });
+    }
+    for (const m of asArr(c.movements)) {
+      await tx.movement.create({
+        data: {
+          campaignId: campaign.id,
+          roundNumber: int(m.roundNumber, 1),
+          nation: str(m.nation),
+          fromTerritory: m.fromTerritory == null ? null : str(m.fromTerritory),
+          toTerritory: m.toTerritory == null ? null : str(m.toTerritory),
+          units: unitStack(m.units),
+        },
+      });
+    }
+
+    // Backfill live state for v1 exports that predate the turn engine.
+    if (asArr(c.nationStates).length === 0) {
+      const start = SCENARIO_START_INCOME[str(c.scenario, "Y1942")] ?? {};
+      await tx.nationState.createMany({
+        data: POWERS.map((p) => ({
+          campaignId: campaign.id,
+          nation: p.key,
+          ipc: start[p.key] ?? 0,
+        })),
+      });
+    }
+
+    return campaign;
+  });
+
+  revalidatePath("/campaigns");
+  return created.id;
+}
+
 export async function deleteCampaign(formData: FormData) {
   const id = String(formData.get("id"));
   await prisma.campaign.delete({ where: { id } });

@@ -145,8 +145,51 @@ async function main() {
   const r2Income = await prisma.nationEntry.findFirst({ where: { round: { campaignId: id, number: 2 }, nation: "USSR" } });
   ok("round 2 carries USSR income forward (18)", r2Income?.income === 18, r2Income?.income);
 
+  // --- Export → Import round-trip -------------------------------------------
+  // Build the same shape the export route emits, then load it back.
+  const full = await prisma.campaign.findUnique({
+    where: { id },
+    include: {
+      players: { include: { assignments: true } },
+      rounds: { include: { entries: { include: { losses: true, raids: true } } } },
+      nationStates: { include: { stocks: true, pending: true } },
+      combatMoves: true,
+      movements: true,
+    },
+  });
+  const newId = await A.importCampaign({ exportedFrom: "War Ledger", version: 2, campaign: full });
+  ok("import returns a new campaign id", typeof newId === "string" && newId !== id);
+
+  const imp = await prisma.campaign.findUnique({
+    where: { id: newId },
+    include: {
+      players: { include: { assignments: true } },
+      rounds: { include: { entries: { include: { losses: true, raids: true } } } },
+      nationStates: { include: { stocks: true, pending: true } },
+      combatMoves: true,
+      movements: true,
+    },
+  });
+  ok("import name is suffixed", imp?.name === "VERIFY_TURN (imported)", imp?.name);
+  ok("import preserves turn pointer", imp?.activePowerKey === full?.activePowerKey && imp?.activePhase === full?.activePhase);
+  ok("import restores all rounds", imp?.rounds.length === full?.rounds.length, [imp?.rounds.length, full?.rounds.length]);
+  ok("import restores nation states", imp?.nationStates.length === 7);
+  const impUssr = imp?.nationStates.find((s) => s.nation === "USSR");
+  ok("import restores USSR treasury (30)", impUssr?.ipc === 30, impUssr?.ipc);
+  ok("import restores USSR stock (infantry ×4)", impUssr?.stocks.length === 1 && impUssr?.stocks[0].quantity === 4, impUssr?.stocks);
+  ok("import restores combat orders", imp?.combatMoves.length === full?.combatMoves.length && (imp?.combatMoves.length ?? 0) > 0);
+  ok("import restores movements", imp?.movements.length === full?.movements.length && (imp?.movements.length ?? 0) > 0);
+  const r2 = imp?.rounds.find((r) => r.number === 2);
+  ok("import restores carried income (round 2 USSR = 18)", r2?.entries.find((e) => e.nation === "USSR")?.income === 18);
+
+  // v1 (legacy) export with no live-state tables → import backfills treasuries.
+  const legacyId = await A.importCampaign({ campaign: { name: "LEGACY", scenario: "Y1942", side: "ALLIES", rounds: [] } });
+  const legacy = await prisma.campaign.findUnique({ where: { id: legacyId }, include: { nationStates: true } });
+  ok("v1 import backfills 7 nation states", legacy?.nationStates.length === 7);
+  ok("v1 import backfills GERMANY treasury (40)", legacy?.nationStates.find((s) => s.nation === "GERMANY")?.ipc === 40);
+
   // Cleanup.
-  await prisma.campaign.delete({ where: { id } });
+  await prisma.campaign.deleteMany({ where: { id: { in: [id, newId, legacyId] } } });
   console.log(`\nAll ${passed} assertions passed.`);
 }
 

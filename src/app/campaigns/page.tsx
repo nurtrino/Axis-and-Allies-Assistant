@@ -21,9 +21,14 @@ export default async function CampaignsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Campaigns</h1>
           <p className="label mt-1">Your logged Anniversary Edition games</p>
         </div>
-        <Link href="/campaigns/new" className="btn btn-primary">
-          + New Campaign
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/campaigns/import" className="btn">
+            ↑ Import / Load
+          </Link>
+          <Link href="/campaigns/new" className="btn btn-primary">
+            + New Campaign
+          </Link>
+        </div>
       </div>
 
       {campaigns.length === 0 ? (
