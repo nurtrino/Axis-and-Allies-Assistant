@@ -239,8 +239,12 @@ const STATUS_TEXT: Record<string, { label: string; color: string }> = {
 
 export default function BattleStage({
   onLogResult,
+  onBattleStart,
+  onReset,
 }: {
   onLogResult?: (data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string; status: string }) => void;
+  onBattleStart?: () => void;
+  onReset?: () => void;
 }) {
   const [mode, setMode] = useState<"setup" | "battle">("setup");
   const [attackerStack, setAttackerStack] = useState<Stack>({});
@@ -359,6 +363,7 @@ export default function BattleStage({
     setHitFlash(null);
     setState(createBattle(attackerStack, defenderStack, { amphibious }));
     setMode("battle");
+    onBattleStart?.();
   }
 
   async function rollStep() {
@@ -422,6 +427,7 @@ export default function BattleStage({
     setHitFlash(null);
     setState(null);
     setMode("setup");
+    onReset?.();
   }
 
   // ── Unified layout: the dice stage stays mounted across setup & battle. ──
