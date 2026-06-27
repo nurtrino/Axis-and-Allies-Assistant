@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   logBattleLosses,
   logBomberRaid,
@@ -34,13 +35,16 @@ export default function CampaignBattle({
   powers,
   defaultRound,
   initialOrder,
+  returnToTurn,
 }: {
   campaignId: string;
   rounds: number[];
   powers: PowerOpt[];
   defaultRound: number;
   initialOrder?: InitialOrder;
+  returnToTurn?: boolean;
 }) {
+  const router = useRouter();
   const [attackerNation, setAttackerNation] = useState(
     initialOrder?.attackerNation ?? powers[0]?.key ?? "",
   );
@@ -53,6 +57,7 @@ export default function CampaignBattle({
   const [territory, setTerritory] = useState(initialOrder?.territory ?? "");
   const [territoryIpc, setTerritoryIpc] = useState(initialOrder?.territoryIpc ?? 0);
   const [logged, setLogged] = useState<string | null>(null);
+  const [resolved, setResolved] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const nameOf = (k: string) => powers.find((p) => p.key === k)?.name ?? k;
@@ -94,11 +99,36 @@ export default function CampaignBattle({
       setLogged(
         `Recorded to Round ${roundNumber}: ${nameOf(attackerNation)} and ${nameOf(defenderNation)} losses added to the ledger.${captureNote}${orderNote}`,
       );
+      setResolved(true);
     });
+  }
+
+  function backToCombatMove() {
+    router.push(`/campaigns/${campaignId}/turn`);
   }
 
   return (
     <div className="space-y-4">
+      {returnToTurn && resolved && (
+        <div
+          className="panel p-4 flex flex-wrap items-center justify-between gap-3"
+          style={{ borderColor: "var(--accent)" }}
+        >
+          <div className="text-sm">
+            <span style={{ color: "var(--good)" }}>✓ Battle resolved.</span>{" "}
+            Head back to declare the next attack.
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            autoFocus
+            onClick={backToCombatMove}
+          >
+            ◂ Back to Combat Move
+          </button>
+        </div>
+      )}
+
       <div className="panel p-3 flex flex-wrap items-end gap-4">
         <div>
           <label className="label block mb-1">Attacking country</label>
@@ -159,11 +189,22 @@ export default function CampaignBattle({
       {pending && <div className="label">Saving…</div>}
 
       {initialOrder && (
-        <div className="panel p-2 text-sm" style={{ color: "var(--accent)" }}>
-          ▸ Resolving declared attack: {nameOf(initialOrder.attackerNation)} →{" "}
-          {nameOf(initialOrder.defenderNation)}
-          {initialOrder.territory ? ` (${initialOrder.territory})` : ""}. The
-          attacker stack is pre-loaded — add the defender&apos;s units, then begin.
+        <div className="panel p-2 text-sm flex flex-wrap items-center justify-between gap-2" style={{ color: "var(--accent)" }}>
+          <span>
+            ▸ Resolving declared attack: {nameOf(initialOrder.attackerNation)} →{" "}
+            {nameOf(initialOrder.defenderNation)}
+            {initialOrder.territory ? ` (${initialOrder.territory})` : ""}. The
+            attacker stack is pre-loaded — add the defender&apos;s units, then begin.
+          </span>
+          {returnToTurn && !resolved && (
+            <button
+              type="button"
+              className="label hover:text-foreground"
+              onClick={backToCombatMove}
+            >
+              ◂ back to Combat Move
+            </button>
+          )}
         </div>
       )}
 

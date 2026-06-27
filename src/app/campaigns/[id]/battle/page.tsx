@@ -14,10 +14,10 @@ export default async function BattlePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ as?: string; order?: string }>;
+  searchParams: Promise<{ as?: string; order?: string; from?: string }>;
 }) {
   const { id } = await params;
-  const { as, order } = await searchParams;
+  const { as, order, from } = await searchParams;
 
   const campaign = await prisma.campaign.findUnique({
     where: { id },
@@ -74,6 +74,7 @@ export default async function BattlePage({
         powers={powers}
         defaultRound={defaultRound}
         initialOrder={initialOrder}
+        returnToTurn={from === "turn"}
       />
     </div>
   );

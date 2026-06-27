@@ -762,7 +762,7 @@ export async function declareCombatMove(input: {
   territoryIpc: number;
   units: Record<string, number>;
   amphibious: boolean;
-}) {
+}): Promise<string> {
   const units = Object.fromEntries(
     Object.entries(input.units).filter(
       ([k, q]) => q > 0 && UNITS_BY_KEY[k],
@@ -771,7 +771,7 @@ export async function declareCombatMove(input: {
   if (Object.keys(units).length === 0) {
     throw new Error("Declare at least one attacking unit.");
   }
-  await prisma.combatMoveOrder.create({
+  const order = await prisma.combatMoveOrder.create({
     data: {
       campaignId: input.campaignId,
       roundNumber: input.roundNumber,
@@ -785,6 +785,7 @@ export async function declareCombatMove(input: {
   });
   revalidateTurn(input.campaignId);
   revalidatePath(`/campaigns/${input.campaignId}/battle`);
+  return order.id;
 }
 
 /** Remove a declared (and not-yet-resolved) combat move. */

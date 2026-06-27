@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { PHASES, isPhaseEnabled, type Phase } from "@/lib/turn";
 import {
   purchaseUnits,
@@ -351,6 +352,7 @@ function UnitStackBadges({
 }
 
 function CombatMovePanel(props: TurnPortalProps) {
+  const router = useRouter();
   const enemies = props.powers.filter(
     (p) => p.coalition !== props.power.coalition,
   );
@@ -364,11 +366,13 @@ function CombatMovePanel(props: TurnPortalProps) {
 
   const totalUnits = Object.values(qty).reduce((s, q) => s + q, 0);
 
-  function declare() {
+  // Declare the attack, then jump straight into its battle. Resolving it on the
+  // battle screen returns here (?from=turn) so the next attack can be declared.
+  function declareAndFight() {
     setErr(null);
     start(async () => {
       try {
-        await declareCombatMove({
+        const orderId = await declareCombatMove({
           campaignId: props.campaignId,
           roundNumber: props.roundNumber,
           attackerNation: props.power.key,
@@ -378,10 +382,9 @@ function CombatMovePanel(props: TurnPortalProps) {
           units: qty,
           amphibious,
         });
-        setQty({});
-        setTerritory("");
-        setTerritoryIpc(0);
-        setAmphibious(false);
+        router.push(
+          `/campaigns/${props.campaignId}/battle?order=${orderId}&from=turn`,
+        );
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Failed to declare attack.");
       }
@@ -400,8 +403,9 @@ function CombatMovePanel(props: TurnPortalProps) {
       <h2 className="text-lg font-semibold">Phase 3 — Combat Move</h2>
       <p className="label">
         Declare each attack: the target, its IPC value, and the units{" "}
-        {props.power.name} commits. Declared attacks queue up for Phase 4, where
-        you resolve them on the shared Battle page.
+        {props.power.name} commits. Hitting <strong>Declare & Fight</strong> takes
+        you straight to the battle — when it&apos;s done you&apos;ll come right
+        back here to declare the next one.
       </p>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -481,9 +485,9 @@ function CombatMovePanel(props: TurnPortalProps) {
           type="button"
           className="btn btn-primary"
           disabled={totalUnits === 0 || !defender || pending}
-          onClick={declare}
+          onClick={declareAndFight}
         >
-          {pending ? "Saving…" : "Declare Attack"}
+          {pending ? "Opening battle…" : "Declare & Fight ▸"}
         </button>
       </div>
       {err && <div className="text-sm" style={{ color: "var(--bad)" }}>{err}</div>}
