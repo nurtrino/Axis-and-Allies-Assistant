@@ -33,6 +33,12 @@ export interface UnitVisual {
   target?: number;
   /** optional material color override (e.g. force the submarine black) */
   color?: string;
+  /** extra yaw (radians) to make the model face the enemy (forward = +Z) */
+  yaw?: number;
+  /** auto-rotate the long horizontal axis onto Z (default true; off for planes) */
+  autoOrient?: boolean;
+  /** render both faces (needed for thin one-sided surfaces like the carrier deck) */
+  doubleSide?: boolean;
 }
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
@@ -41,13 +47,13 @@ export const UNIT_VISUAL: Record<string, UnitVisual> = {
   cruiser: { shape: "warship", size: 11, model: "warship", target: 12 },
   destroyer: { shape: "warship", size: 10, model: "warship", target: 11 },
   transport: { shape: "warship", size: 11, model: "warship", target: 12 },
-  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22 },
-  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#161616" },
-  fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5 },
-  bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7 },
-  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4 },
+  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, doubleSide: true },
+  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414" },
+  fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5, autoOrient: false, yaw: Math.PI },
+  bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7, autoOrient: false, yaw: Math.PI },
+  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4, yaw: Math.PI / 2 },
   artillery: { shape: "artillery", size: 7, model: "artillery", target: 8 },
-  tank: { shape: "tank", size: 6, model: "tank", target: 6.5 },
+  tank: { shape: "tank", size: 6, model: "tank", target: 6.5, color: "#3b4030" },
   aaGun: { shape: "artillery", size: 7, model: "artillery", target: 7 },
   factory: { shape: "structure", size: 4 },
 };
@@ -116,9 +122,15 @@ export interface Placement {
 export function formation(units: SimUnit[], side: Side): Placement[] {
   const dir = side === "attacker" ? -1 : 1;
   const perRow = Math.max(3, Math.ceil(Math.sqrt(units.length) * 1.3));
-  const spacingX = 13;
-  const spacingZ = 16;
-  const baseZ = dir * 24;
+  // Spacing adapts to the largest unit present so big ships don't overlap while
+  // small land units stay compact.
+  const maxSize = Math.max(
+    4,
+    ...units.map((u) => visualFor(u.type).target ?? visualFor(u.type).size),
+  );
+  const spacingX = maxSize * 0.95;
+  const spacingZ = maxSize * 1.1;
+  const baseZ = dir * (maxSize * 0.9 + 8);
   return units.map((unit, i) => {
     const row = Math.floor(i / perRow);
     const col = i % perRow;

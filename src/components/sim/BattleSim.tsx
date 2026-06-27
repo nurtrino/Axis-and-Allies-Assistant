@@ -363,11 +363,17 @@ function ModelUnit({
   file,
   target,
   color,
+  yaw = 0,
+  autoOrient = true,
+  doubleSide = false,
   onHeight,
 }: {
   file: string;
   target: number;
   color?: string;
+  yaw?: number;
+  autoOrient?: boolean;
+  doubleSide?: boolean;
   onHeight?: (h: number) => void;
 }) {
   const { scene } = useGLTF(modelUrl(file));
@@ -376,14 +382,16 @@ function ModelUnit({
     c.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(c);
     let size = box.getSize(new THREE.Vector3());
-    // Orient the model's long horizontal axis along Z (the facing/attack axis)
-    // so units point head-on across the battlefield instead of broadside.
-    if (size.x > size.z) {
-      c.rotation.y = Math.PI / 2;
-      c.updateMatrixWorld(true);
-      box = new THREE.Box3().setFromObject(c);
-      size = box.getSize(new THREE.Vector3());
+    // Orient the model's long horizontal axis onto Z (the facing/attack axis).
+    // Skipped for models like aircraft whose widest axis is the wingspan.
+    if (autoOrient && size.x > size.z) {
+      c.rotation.y += Math.PI / 2;
     }
+    // Manual facing correction so the model points at the enemy.
+    c.rotation.y += yaw;
+    c.updateMatrixWorld(true);
+    box = new THREE.Box3().setFromObject(c);
+    size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     // Scale by the LARGEST overall dimension so tall/thin models (a standing
     // soldier) aren't blown up by their tiny footprint.
@@ -403,15 +411,20 @@ function ModelUnit({
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       for (const mat of mats) {
         const sm = mat as THREE.MeshStandardMaterial;
-        sm.side = THREE.DoubleSide; // show thin one-sided surfaces (carrier deck)
-        if (tint) sm.color = tint;
+        if (doubleSide) sm.side = THREE.DoubleSide;
+        if (tint) {
+          // matte the override so env lighting doesn't turn it chrome
+          sm.color = tint;
+          sm.metalness = 0.15;
+          sm.roughness = 0.85;
+        }
       }
     });
     const g = new THREE.Group();
     g.add(c);
     g.scale.setScalar(s);
     return { obj: g, height: size.y * s };
-  }, [scene, target, color]);
+  }, [scene, target, color, yaw, autoOrient, doubleSide]);
 
   useEffect(() => {
     onHeight?.(height);
@@ -490,8 +503,8 @@ function Unit({
   const [modelH, setModelH] = useState<number | null>(null);
 
   const fallbackTop = vis.air ? 1.6 : (vis.target ?? vis.size) * 0.5;
-  const barY = (vis.air ? 0 : (modelH ?? fallbackTop)) + (vis.air ? 1.4 : 0.8);
-  const barW = Math.min(4.5, Math.max(1.8, (vis.target ?? vis.size) * 0.42));
+  const barY = (vis.air ? 0 : (modelH ?? fallbackTop)) + (vis.air ? 1.2 : 0.6);
+  const barW = Math.min(3.2, Math.max(1.0, (vis.target ?? vis.size) * 0.3));
 
   useFrame(({ clock }, dt) => {
     const g = group.current;
@@ -513,8 +526,8 @@ function Unit({
         y -= s * 3; // sink beneath the waves
         g.rotation.z += s * 0.6;
       } else if (vis.air) {
-        y -= s * 8; // plane falls
-        g.rotation.x += s * 1.2;
+        // plane descends straight into the ground (no tumble)
+        y = 6 - s * 9;
       } else {
         g.scale.setScalar(Math.max(0.001, 1 - s)); // wreck collapses
       }
@@ -529,6 +542,9 @@ function Unit({
           file={vis.model}
           target={vis.target ?? vis.size}
           color={vis.color}
+          yaw={vis.yaw}
+          autoOrient={vis.autoOrient}
+          doubleSide={vis.doubleSide}
           onHeight={setModelH}
         />
       ) : (
@@ -580,11 +596,13 @@ function Volley({
   destroyedIds,
   salvo,
   domain,
+  firingIds,
 }: {
   placements: Placement[];
   destroyedIds: Set<string>;
   salvo: number;
   domain: Domain;
+  firingIds: string[];
 }) {
   const [beams, setBeams] = useState<Beam[]>([]);
   const age = useRef(0);
@@ -605,23 +623,23 @@ function Volley({
   useFrame((_, dt) => {
     if (salvo !== lastSalvo.current) {
       lastSalvo.current = salvo;
+      const firing = new Set(firingIds);
       const live = placements.filter((p) => !destroyedIds.has(p.unit.id));
       const att = live.filter((p) => p.unit.side === "attacker");
       const def = live.filter((p) => p.unit.side === "defender");
+      // Only units that scored a hit this round fire a shot.
+      const shooters = live.filter((p) => firing.has(p.unit.id));
       const next: Beam[] = [];
-      const fire = (from: Placement[], to: Placement[], tag: Side) => {
-        if (!to.length) return;
-        for (const s of from) {
-          const target = to[Math.floor(Math.random() * to.length)];
-          const a = posOf.get(s.unit.id);
-          const b = posOf.get(target.unit.id);
-          if (a && b) next.push({ key: `${tag}-${s.unit.id}-${salvo}`, from: a, to: b });
-        }
-      };
-      fire(att, def, "attacker");
-      fire(def, att, "defender");
-      // Play one fire sound per weapon type that shot this volley.
-      const sounds = new Set([...att, ...def].map((p) => fireSoundFor(p.unit.type)));
+      for (const s of shooters) {
+        const enemies = s.unit.side === "attacker" ? def : att;
+        if (!enemies.length) continue;
+        const target = enemies[Math.floor(Math.random() * enemies.length)];
+        const a = posOf.get(s.unit.id);
+        const b = posOf.get(target.unit.id);
+        if (a && b) next.push({ key: `${s.unit.id}-${salvo}`, from: a, to: b });
+      }
+      // One fire sound per weapon type that actually shot.
+      const sounds = new Set(shooters.map((p) => fireSoundFor(p.unit.type)));
       sounds.forEach(playFireSound);
       age.current = 0;
       setBeams(next);
@@ -652,10 +670,12 @@ export interface BattleSimProps {
   destroyedIds: string[];
   /** increment to trigger a firing volley */
   salvo: number;
+  /** unit ids that fire this volley (scored a hit) */
+  firingIds: string[];
   className?: string;
 }
 
-function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "className">) {
+function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSimProps, "className">) {
   const placements = useMemo(() => {
     const att = formation(units.filter((u) => u.side === "attacker"), "attacker");
     const def = formation(units.filter((u) => u.side === "defender"), "defender");
@@ -695,7 +715,7 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
         ))}
       </Suspense>
 
-      <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} />
+      <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} firingIds={firingIds} />
 
       <OrbitControls
         enablePan
@@ -711,16 +731,16 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
 // Warm the glTF cache so models pop in fast on first battle.
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
-export default function BattleSim({ units, domain, destroyedIds, salvo, className }: BattleSimProps) {
+export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, className }: BattleSimProps) {
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
         shadows
-        camera={{ position: [0, 34, 135], fov: 50 }}
+        camera={{ position: [0, 14, 52], fov: 50 }}
         dpr={[1, 2]}
         gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
       >
-        <Scene units={units} domain={domain} destroyedIds={destroyedIds} salvo={salvo} />
+        <Scene units={units} domain={domain} destroyedIds={destroyedIds} salvo={salvo} firingIds={firingIds} />
       </Canvas>
     </div>
   );
