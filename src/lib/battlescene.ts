@@ -82,6 +82,16 @@ export function detectDomain(types: string[]): Domain {
   return hasSea && !hasLand ? "sea" : "land";
 }
 
+/** Firing sound (file in /sounds/<name>.mp3) for a unit type. */
+export function fireSoundFor(type: string): string {
+  const d = typeDomain(type);
+  if (d === "sea") return "naval-fire";
+  if (d === "air") return "plane-fire";
+  if (type === "tank") return "tank-fire";
+  if (type === "artillery" || type === "aaGun") return "artillery-fire";
+  return "infantry-fire";
+}
+
 /** Expand stacks ({ type: count }) into individual placeable units. */
 export function expandStack(stack: Record<string, number>, side: Side): SimUnit[] {
   const out: SimUnit[] = [];

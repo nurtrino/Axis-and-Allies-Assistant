@@ -19,6 +19,7 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import {
   formation,
   visualFor,
+  fireSoundFor,
   MODEL_FILES,
   type Domain,
   type Placement,
@@ -27,6 +28,18 @@ import {
 } from "@/lib/battlescene";
 
 const modelUrl = (file: string) => `/assets/sim/models/${file}.glb`;
+
+/** Play a one-shot fire sound (overlapping plays are fine — fresh element each time). */
+function playFireSound(name: string) {
+  if (typeof Audio === "undefined") return;
+  try {
+    const a = new Audio(`/sounds/${name}.mp3`);
+    a.volume = 0.45;
+    void a.play().catch(() => {});
+  } catch {
+    /* autoplay/codec issues are non-fatal */
+  }
+}
 
 const ATTACKER_COLOR = "#c0392b";
 const DEFENDER_COLOR = "#3a6ea5";
@@ -607,6 +620,9 @@ function Volley({
       };
       fire(att, def, "attacker");
       fire(def, att, "defender");
+      // Play one fire sound per weapon type that shot this volley.
+      const sounds = new Set([...att, ...def].map((p) => fireSoundFor(p.unit.type)));
+      sounds.forEach(playFireSound);
       age.current = 0;
       setBeams(next);
       setOpacity(next.length ? 1 : 0);
