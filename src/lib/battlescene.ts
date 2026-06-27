@@ -35,19 +35,19 @@ export interface UnitVisual {
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
   // Every surface ship uses the same warship hull; carrier & sub are distinct.
-  battleship: { shape: "warship", size: 6, model: "warship", target: 7 },
-  cruiser: { shape: "warship", size: 5, model: "warship", target: 5.5 },
-  destroyer: { shape: "warship", size: 4.5, model: "warship", target: 5 },
-  transport: { shape: "warship", size: 5, model: "warship", target: 5.5 },
-  carrier: { shape: "carrier", size: 8, model: "carrier", target: 9 },
-  submarine: { shape: "sub", size: 4, model: "submarine", target: 5 },
-  fighter: { shape: "plane", size: 3, air: true, model: "fighter", target: 3.5 },
-  bomber: { shape: "plane", size: 4, air: true, model: "bomber", target: 5 },
-  infantry: { shape: "infantry", size: 1.2, model: "infantry", target: 1.8 },
-  artillery: { shape: "artillery", size: 2, model: "artillery", target: 2.4 },
-  tank: { shape: "tank", size: 2.2, model: "tank", target: 2.8 },
-  aaGun: { shape: "artillery", size: 2, model: "artillery", target: 2.2 },
-  factory: { shape: "structure", size: 2.5 },
+  battleship: { shape: "warship", size: 11, model: "warship", target: 12 },
+  cruiser: { shape: "warship", size: 8, model: "warship", target: 9 },
+  destroyer: { shape: "warship", size: 7, model: "warship", target: 8 },
+  transport: { shape: "warship", size: 8, model: "warship", target: 9 },
+  carrier: { shape: "carrier", size: 13, model: "carrier", target: 15 },
+  submarine: { shape: "sub", size: 7, model: "submarine", target: 8 },
+  fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5 },
+  bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7 },
+  infantry: { shape: "infantry", size: 2.2, model: "infantry", target: 2.6 },
+  artillery: { shape: "artillery", size: 3, model: "artillery", target: 3.6 },
+  tank: { shape: "tank", size: 3.6, model: "tank", target: 4.2 },
+  aaGun: { shape: "artillery", size: 3, model: "artillery", target: 3.4 },
+  factory: { shape: "structure", size: 4 },
 };
 
 /** All glTF model basenames used, for preloading. */
@@ -103,10 +103,10 @@ export interface Placement {
  */
 export function formation(units: SimUnit[], side: Side): Placement[] {
   const dir = side === "attacker" ? -1 : 1;
-  const perRow = Math.max(4, Math.ceil(Math.sqrt(units.length) * 1.6));
-  const spacingX = 4;
-  const spacingZ = 5;
-  const baseZ = dir * 12;
+  const perRow = Math.max(3, Math.ceil(Math.sqrt(units.length) * 1.3));
+  const spacingX = 11;
+  const spacingZ = 13;
+  const baseZ = dir * 20;
   return units.map((unit, i) => {
     const row = Math.floor(i / perRow);
     const col = i % perRow;

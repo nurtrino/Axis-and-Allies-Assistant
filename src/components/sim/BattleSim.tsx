@@ -88,9 +88,11 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
       sunDirection: sun.clone().normalize(),
       sunColor: 0xffffff,
       waterColor: 0x183a55,
-      distortionScale: 3.2,
+      distortionScale: 2.6,
       fog: false,
     });
+    // smaller, finer wave pattern (scale the normal map tiling up)
+    (w.material as THREE.ShaderMaterial).uniforms.size.value = 2.5;
     w.rotation.x = -Math.PI / 2;
     return w;
   }, [normals, sun]);
@@ -325,15 +327,26 @@ function ModelUnit({ file, target }: { file: string; target: number }) {
   const { scene } = useGLTF(modelUrl(file));
   const obj = useMemo(() => {
     const c = cloneSkinned(scene);
-    const box = new THREE.Box3().setFromObject(c);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
+    c.updateMatrixWorld(true);
+    let box = new THREE.Box3().setFromObject(c);
+    let size = box.getSize(new THREE.Vector3());
+    // Orient the model's long horizontal axis along Z (the facing/attack axis)
+    // so units point head-on across the battlefield instead of broadside.
+    if (size.x > size.z) {
+      c.rotation.y = Math.PI / 2;
+      c.updateMatrixWorld(true);
+      box = new THREE.Box3().setFromObject(c);
+      size = box.getSize(new THREE.Vector3());
+    }
+    const center = box.getCenter(new THREE.Vector3());
     const longest = Math.max(size.x, size.z) || 1;
     const s = target / longest;
     // center horizontally, drop base to y=0
-    c.position.set(-center.x, -box.min.y, -center.z);
+    c.position.set(
+      c.position.x - center.x,
+      c.position.y - box.min.y,
+      c.position.z - center.z,
+    );
     c.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
@@ -349,13 +362,14 @@ function ModelUnit({ file, target }: { file: string; target: number }) {
   return <primitive object={obj} />;
 }
 
-/** Small colored disc under a unit so sides read at a glance. */
-function SideMarker({ side }: { side: Side }) {
+/** Colored ring under a unit so sides read at a glance; scales with the unit. */
+function SideMarker({ side, size }: { side: Side; size: number }) {
   const color = side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
+  const outer = Math.max(1.2, size * 0.5);
   return (
     <mesh position={[0, 0.06, 0]} rotation-x={-Math.PI / 2}>
-      <ringGeometry args={[0.7, 1.05, 24]} />
-      <meshBasicMaterial color={color} transparent opacity={0.85} side={THREE.DoubleSide} />
+      <ringGeometry args={[outer * 0.78, outer, 32]} />
+      <meshBasicMaterial color={color} transparent opacity={0.8} side={THREE.DoubleSide} />
     </mesh>
   );
 }
@@ -411,7 +425,7 @@ function Unit({
       ) : (
         <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
       )}
-      {!vis.air && <SideMarker side={placement.unit.side} />}
+      {!vis.air && <SideMarker side={placement.unit.side} size={vis.target ?? vis.size} />}
       {destroyed && <Burning />}
     </group>
   );
@@ -572,9 +586,9 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
 
       <OrbitControls
         enablePan
-        maxPolarAngle={Math.PI / 2.05}
-        minDistance={15}
-        maxDistance={140}
+        maxPolarAngle={Math.PI / 2.08}
+        minDistance={6}
+        maxDistance={220}
         target={[0, 0, 0]}
       />
     </>
@@ -589,7 +603,7 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, classNam
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
         shadows
-        camera={{ position: [0, 32, 48], fov: 45 }}
+        camera={{ position: [0, 26, 105], fov: 50 }}
         dpr={[1, 2]}
         gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
       >
