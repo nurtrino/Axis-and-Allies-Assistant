@@ -92,14 +92,12 @@ function Ground() {
 function UnitMesh({ shape, color }: { shape: string; color: string }) {
   const mat = <meshStandardMaterial color={color} metalness={0.3} roughness={0.6} />;
   switch (shape) {
-    case "ship-large":
-    case "ship-mid":
-    case "ship-small":
-    case "transport": {
-      const len = shape === "ship-large" ? 5 : shape === "ship-mid" ? 3.6 : 2.6;
-      const beam = len * 0.28;
+    case "warship": {
+      const len = 5;
+      const beam = len * 0.26;
       return (
         <group>
+          {/* hull */}
           <mesh position={[0, 0.25, 0]} castShadow>
             <boxGeometry args={[beam, 0.6, len]} />
             {mat}
@@ -110,16 +108,59 @@ function UnitMesh({ shape, color }: { shape: string; color: string }) {
             {mat}
           </mesh>
           {/* superstructure */}
-          <mesh position={[0, 0.75, shape === "transport" ? 0 : -len * 0.1]} castShadow>
-            <boxGeometry args={[beam * 0.6, shape === "transport" ? 0.5 : 1, len * 0.3]} />
+          <mesh position={[0, 0.78, -len * 0.06]} castShadow>
+            <boxGeometry args={[beam * 0.6, 0.95, len * 0.28]} />
             {mat}
           </mesh>
-          {shape === "ship-large" && (
-            <mesh position={[0, 1.4, -len * 0.05]} castShadow>
-              <cylinderGeometry args={[0.12, 0.12, 1.2, 8]} />
-              {mat}
-            </mesh>
-          )}
+          {/* funnel + mast */}
+          <mesh position={[0, 1.2, -len * 0.16]} castShadow>
+            <cylinderGeometry args={[0.14, 0.16, 0.7, 10]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 1.5, 0.05]} castShadow>
+            <cylinderGeometry args={[0.04, 0.04, 1.4, 6]} />
+            {mat}
+          </mesh>
+          {/* fore + aft gun turrets */}
+          <mesh position={[0, 0.6, len * 0.28]} castShadow>
+            <cylinderGeometry args={[0.22, 0.26, 0.3, 10]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.6, -len * 0.34]} castShadow>
+            <cylinderGeometry args={[0.22, 0.26, 0.3, 10]} />
+            {mat}
+          </mesh>
+        </group>
+      );
+    }
+    case "carrier": {
+      const len = 7;
+      const beam = len * 0.22;
+      return (
+        <group>
+          {/* hull */}
+          <mesh position={[0, 0.3, 0]} castShadow>
+            <boxGeometry args={[beam, 0.7, len]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.3, len / 2]} castShadow>
+            <coneGeometry args={[beam / 2, len * 0.25, 4]} />
+            {mat}
+          </mesh>
+          {/* flat flight deck (wider than the hull) */}
+          <mesh position={[0, 0.75, 0]} castShadow receiveShadow>
+            <boxGeometry args={[beam * 1.8, 0.12, len * 0.96]} />
+            <meshStandardMaterial color="#2b2b2b" metalness={0.2} roughness={0.85} />
+          </mesh>
+          {/* starboard island tower */}
+          <mesh position={[beam * 0.75, 1.2, -len * 0.12]} castShadow>
+            <boxGeometry args={[beam * 0.35, 0.9, len * 0.16]} />
+            {mat}
+          </mesh>
+          <mesh position={[beam * 0.75, 1.9, -len * 0.12]} castShadow>
+            <cylinderGeometry args={[0.04, 0.04, 0.8, 6]} />
+            {mat}
+          </mesh>
         </group>
       );
     }

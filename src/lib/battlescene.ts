@@ -11,7 +11,9 @@ import { UNITS_BY_KEY } from "./anniversary.config";
 
 export type Domain = "land" | "sea";
 export type Side = "attacker" | "defender";
-export type Shape = "ship-large" | "ship-mid" | "ship-small" | "sub" | "transport" | "tank" | "infantry" | "artillery" | "plane" | "structure";
+// All surface ships share one "warship" model; the carrier and submarine are
+// the only distinct hulls.
+export type Shape = "warship" | "carrier" | "sub" | "tank" | "infantry" | "artillery" | "plane" | "structure";
 
 export interface SimUnit {
   id: string;
@@ -28,12 +30,13 @@ export interface UnitVisual {
 }
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
-  battleship: { shape: "ship-large", size: 4 },
-  carrier: { shape: "ship-large", size: 4.2 },
-  cruiser: { shape: "ship-mid", size: 3 },
-  destroyer: { shape: "ship-small", size: 2.4 },
-  submarine: { shape: "sub", size: 2.2 },
-  transport: { shape: "transport", size: 3 },
+  // Every surface ship uses the same warship hull; carrier & sub are distinct.
+  battleship: { shape: "warship", size: 4 },
+  cruiser: { shape: "warship", size: 3.4 },
+  destroyer: { shape: "warship", size: 3 },
+  transport: { shape: "warship", size: 3.2 },
+  carrier: { shape: "carrier", size: 5 },
+  submarine: { shape: "sub", size: 2.4 },
   fighter: { shape: "plane", size: 1.6, air: true },
   bomber: { shape: "plane", size: 2.2, air: true },
   infantry: { shape: "infantry", size: 0.9 },
