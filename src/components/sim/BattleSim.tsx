@@ -1,0 +1,445 @@
+"use client";
+
+/**
+ * 3D battle simulator scene (React Three Fiber). Renders a generated
+ * battlefield (ocean or terrain), spawns both sides' units in opposing
+ * formations, fires beams on each volley, and burns/sinks destroyed units.
+ *
+ * Placeholder geometry stands in for real models for now — swap `<UnitMesh>`
+ * shapes for glTF without touching the formation / firing / destruction loop.
+ */
+import { useMemo, useRef, useState } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import * as THREE from "three";
+import {
+  formation,
+  visualFor,
+  type Domain,
+  type Placement,
+  type SimUnit,
+  type Side,
+} from "@/lib/battlescene";
+
+const ATTACKER_COLOR = "#c0392b";
+const DEFENDER_COLOR = "#3a6ea5";
+
+/** Deterministic per-unit seed (so bob/flicker vary without impure Math.random). */
+function seedFrom(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (h % 1000) / 100; // 0..10
+}
+
+/** Gentle procedural wave height so ships and the ocean surface agree. */
+function waveHeight(x: number, z: number, t: number): number {
+  return (
+    Math.sin(x * 0.18 + t * 0.9) * 0.35 +
+    Math.cos(z * 0.22 + t * 0.7) * 0.3
+  );
+}
+
+// ───────────────────────────── Battlefield ──────────────────────────────────
+
+function Ocean() {
+  const ref = useRef<THREE.Mesh>(null);
+  const geo = useMemo(() => new THREE.PlaneGeometry(400, 400, 90, 90), []);
+  const base = useMemo(() => Float32Array.from(geo.attributes.position.array), [geo]);
+
+  useFrame(({ clock }) => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const t = clock.elapsedTime;
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      pos.setZ(i, waveHeight(base[i * 3], base[i * 3 + 1], t));
+    }
+    pos.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
+  });
+
+  return (
+    <mesh ref={ref} geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
+      <meshStandardMaterial color="#15466b" metalness={0.2} roughness={0.35} />
+    </mesh>
+  );
+}
+
+function Ground() {
+  const geo = useMemo(() => {
+    const g = new THREE.PlaneGeometry(400, 400, 60, 60);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      // low rolling hills, flattened near the centre where units stand
+      const edge = Math.min(1, (Math.abs(x) + Math.abs(y)) / 120);
+      pos.setZ(i, (Math.sin(x * 0.07) * Math.cos(y * 0.06)) * 3 * edge);
+    }
+    g.computeVertexNormals();
+    return g;
+  }, []);
+  return (
+    <mesh geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
+      <meshStandardMaterial color="#4f5d39" roughness={1} />
+    </mesh>
+  );
+}
+
+// ─────────────────────────────── Units ──────────────────────────────────────
+
+/** Placeholder silhouette per unit shape, drawn in the side's color. */
+function UnitMesh({ shape, color }: { shape: string; color: string }) {
+  const mat = <meshStandardMaterial color={color} metalness={0.3} roughness={0.6} />;
+  switch (shape) {
+    case "ship-large":
+    case "ship-mid":
+    case "ship-small":
+    case "transport": {
+      const len = shape === "ship-large" ? 5 : shape === "ship-mid" ? 3.6 : 2.6;
+      const beam = len * 0.28;
+      return (
+        <group>
+          <mesh position={[0, 0.25, 0]} castShadow>
+            <boxGeometry args={[beam, 0.6, len]} />
+            {mat}
+          </mesh>
+          {/* bow taper */}
+          <mesh position={[0, 0.25, len / 2]} castShadow>
+            <coneGeometry args={[beam / 2, len * 0.35, 4]} />
+            {mat}
+          </mesh>
+          {/* superstructure */}
+          <mesh position={[0, 0.75, shape === "transport" ? 0 : -len * 0.1]} castShadow>
+            <boxGeometry args={[beam * 0.6, shape === "transport" ? 0.5 : 1, len * 0.3]} />
+            {mat}
+          </mesh>
+          {shape === "ship-large" && (
+            <mesh position={[0, 1.4, -len * 0.05]} castShadow>
+              <cylinderGeometry args={[0.12, 0.12, 1.2, 8]} />
+              {mat}
+            </mesh>
+          )}
+        </group>
+      );
+    }
+    case "sub":
+      return (
+        <group rotation-z={Math.PI / 2}>
+          <mesh castShadow>
+            <capsuleGeometry args={[0.5, 2.2, 6, 12]} />
+            {mat}
+          </mesh>
+        </group>
+      );
+    case "tank":
+      return (
+        <group>
+          <mesh position={[0, 0.35, 0]} castShadow>
+            <boxGeometry args={[1.2, 0.5, 1.8]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.75, 0]} castShadow>
+            <boxGeometry args={[0.8, 0.4, 0.9]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.8, 0.9]} castShadow>
+            <cylinderGeometry args={[0.08, 0.08, 1, 8]} rotation-x={Math.PI / 2} />
+            {mat}
+          </mesh>
+        </group>
+      );
+    case "artillery":
+      return (
+        <group>
+          <mesh position={[0, 0.3, 0]} castShadow>
+            <boxGeometry args={[0.7, 0.4, 0.9]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.5, 0.8]} rotation-x={Math.PI / 2.4} castShadow>
+            <cylinderGeometry args={[0.07, 0.07, 1.4, 8]} />
+            {mat}
+          </mesh>
+        </group>
+      );
+    case "plane":
+      return (
+        <group rotation-x={-0.05}>
+          <mesh castShadow>
+            <capsuleGeometry args={[0.22, 1.4, 6, 10]} rotation-x={Math.PI / 2} />
+            {mat}
+          </mesh>
+          <mesh castShadow>
+            <boxGeometry args={[2.4, 0.08, 0.5]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.1, -0.8]} castShadow>
+            <boxGeometry args={[0.9, 0.06, 0.35]} />
+            {mat}
+          </mesh>
+        </group>
+      );
+    case "structure":
+      return (
+        <mesh position={[0, 1, 0]} castShadow>
+          <boxGeometry args={[2.5, 2, 2.5]} />
+          {mat}
+        </mesh>
+      );
+    default: // infantry
+      return (
+        <group>
+          <mesh position={[0, 0.5, 0]} castShadow>
+            <capsuleGeometry args={[0.25, 0.6, 6, 10]} />
+            {mat}
+          </mesh>
+        </group>
+      );
+  }
+}
+
+function Burning() {
+  const ref = useRef<THREE.PointLight>(null);
+  const flame = useRef<THREE.Mesh>(null);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    // layered sines fake a flicker without an impure RNG
+    const f = 0.6 + Math.sin(t * 22) * 0.2 + Math.sin(t * 37.3) * 0.12;
+    if (ref.current) ref.current.intensity = 6 * f;
+    if (flame.current) flame.current.scale.setScalar(0.8 + f * 0.5);
+  });
+  return (
+    <group>
+      <pointLight ref={ref} color="#ff7a18" distance={14} position={[0, 1.5, 0]} />
+      <mesh ref={flame} position={[0, 1.1, 0]}>
+        <coneGeometry args={[0.5, 1.6, 8]} />
+        <meshBasicMaterial color="#ff8a1e" transparent opacity={0.85} />
+      </mesh>
+      {[0, 1, 2].map((i) => (
+        <mesh key={i} position={[0, 2 + i * 0.9, 0]}>
+          <sphereGeometry args={[0.5 + i * 0.25, 8, 8]} />
+          <meshBasicMaterial color="#3a3a3a" transparent opacity={0.35 - i * 0.08} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Unit({
+  placement,
+  domain,
+  destroyed,
+}: {
+  placement: Placement;
+  domain: Domain;
+  destroyed: boolean;
+}) {
+  const group = useRef<THREE.Group>(null);
+  const vis = visualFor(placement.unit.type);
+  const color = placement.unit.side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
+  const sinkRef = useRef(0);
+  const bobSeed = seedFrom(placement.unit.id);
+
+  useFrame(({ clock }, dt) => {
+    const g = group.current;
+    if (!g) return;
+    const t = clock.elapsedTime;
+    let y = 0;
+    if (domain === "sea" && !vis.air) {
+      y = waveHeight(placement.x, placement.z, t) + 0.05;
+      g.rotation.z = Math.sin(t * 0.8 + bobSeed) * 0.04;
+      g.rotation.x = Math.cos(t * 0.6 + bobSeed) * 0.03;
+    }
+    if (vis.air) {
+      y = 6 + Math.sin(t * 1.5 + bobSeed) * 0.3;
+    }
+    if (destroyed) {
+      sinkRef.current = Math.min(sinkRef.current + dt * 0.5, 1);
+      const s = sinkRef.current;
+      if (domain === "sea" && !vis.air) {
+        y -= s * 3; // sink beneath the waves
+        g.rotation.z += s * 0.6;
+      } else if (vis.air) {
+        y -= s * 8; // plane falls
+        g.rotation.x += s * 1.2;
+      } else {
+        g.scale.setScalar(Math.max(0.001, 1 - s)); // wreck collapses
+      }
+    }
+    g.position.set(placement.x, y, placement.z);
+  });
+
+  return (
+    <group ref={group} rotation-y={placement.rotationY} position={[placement.x, 0, placement.z]}>
+      <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
+      {destroyed && <Burning />}
+    </group>
+  );
+}
+
+// ─────────────────────────────── Volley ─────────────────────────────────────
+
+interface Beam {
+  key: string;
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+}
+
+function BeamMesh({ beam, opacity }: { beam: Beam; opacity: number }) {
+  const { pos, quat, len } = useMemo(() => {
+    const dir = new THREE.Vector3().subVectors(beam.to, beam.from);
+    const length = dir.length();
+    const mid = new THREE.Vector3().addVectors(beam.from, beam.to).multiplyScalar(0.5);
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      dir.clone().normalize(),
+    );
+    return { pos: mid, quat: q, len: length };
+  }, [beam]);
+
+  return (
+    <group>
+      <mesh position={pos} quaternion={quat}>
+        <cylinderGeometry args={[0.05, 0.05, len, 6]} />
+        <meshBasicMaterial color="#ffd24a" transparent opacity={opacity} />
+      </mesh>
+      {/* muzzle flash at the shooter */}
+      <mesh position={beam.from}>
+        <sphereGeometry args={[0.4 * opacity + 0.1, 8, 8]} />
+        <meshBasicMaterial color="#fff2b0" transparent opacity={opacity} />
+      </mesh>
+    </group>
+  );
+}
+
+function Volley({
+  placements,
+  destroyedIds,
+  salvo,
+  domain,
+}: {
+  placements: Placement[];
+  destroyedIds: Set<string>;
+  salvo: number;
+  domain: Domain;
+}) {
+  const [beams, setBeams] = useState<Beam[]>([]);
+  const age = useRef(0);
+  const lastSalvo = useRef(0);
+  const [opacity, setOpacity] = useState(0);
+
+  const posOf = useMemo(() => {
+    const m = new Map<string, THREE.Vector3>();
+    for (const p of placements) {
+      const air = visualFor(p.unit.type).air;
+      m.set(p.unit.id, new THREE.Vector3(p.x, air ? 6 : domain === "sea" ? 0.6 : 0.8, p.z));
+    }
+    return m;
+  }, [placements, domain]);
+
+  // Edge-trigger a volley when `salvo` changes (done in the frame loop so we
+  // never setState during an effect/render); then fade the beams out.
+  useFrame((_, dt) => {
+    if (salvo !== lastSalvo.current) {
+      lastSalvo.current = salvo;
+      const live = placements.filter((p) => !destroyedIds.has(p.unit.id));
+      const att = live.filter((p) => p.unit.side === "attacker");
+      const def = live.filter((p) => p.unit.side === "defender");
+      const next: Beam[] = [];
+      const fire = (from: Placement[], to: Placement[], tag: Side) => {
+        if (!to.length) return;
+        for (const s of from) {
+          const target = to[Math.floor(Math.random() * to.length)];
+          const a = posOf.get(s.unit.id);
+          const b = posOf.get(target.unit.id);
+          if (a && b) next.push({ key: `${tag}-${s.unit.id}-${salvo}`, from: a, to: b });
+        }
+      };
+      fire(att, def, "attacker");
+      fire(def, att, "defender");
+      age.current = 0;
+      setBeams(next);
+      setOpacity(next.length ? 1 : 0);
+      return;
+    }
+    if (!beams.length) return;
+    age.current += dt;
+    const life = 0.55;
+    setOpacity(Math.max(0, 1 - age.current / life));
+    if (age.current > life) setBeams([]);
+  });
+
+  return (
+    <>
+      {beams.map((b) => (
+        <BeamMesh key={b.key} beam={b} opacity={opacity} />
+      ))}
+    </>
+  );
+}
+
+// ─────────────────────────────── Scene ──────────────────────────────────────
+
+export interface BattleSimProps {
+  units: SimUnit[];
+  domain: Domain;
+  destroyedIds: string[];
+  /** increment to trigger a firing volley */
+  salvo: number;
+  className?: string;
+}
+
+function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "className">) {
+  const placements = useMemo(() => {
+    const att = formation(units.filter((u) => u.side === "attacker"), "attacker");
+    const def = formation(units.filter((u) => u.side === "defender"), "defender");
+    return [...att, ...def];
+  }, [units]);
+  const destroyed = useMemo(() => new Set(destroyedIds), [destroyedIds]);
+
+  return (
+    <>
+      <hemisphereLight args={["#bcd4ff", domain === "sea" ? "#0a2a44" : "#2a3320", 0.7]} />
+      <directionalLight
+        position={[40, 60, 20]}
+        intensity={2}
+        castShadow
+        shadow-mapSize={[1024, 1024]}
+      />
+      <ambientLight intensity={0.25} />
+      <fog attach="fog" args={[domain === "sea" ? "#9fc0d8" : "#cfd8c0", 60, 220]} />
+      <color attach="background" args={[domain === "sea" ? "#9fc0d8" : "#cfd8c0"]} />
+
+      {domain === "sea" ? <Ocean /> : <Ground />}
+
+      {placements.map((p) => (
+        <Unit
+          key={p.unit.id}
+          placement={p}
+          domain={domain}
+          destroyed={destroyed.has(p.unit.id)}
+        />
+      ))}
+
+      <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} />
+
+      <OrbitControls
+        enablePan
+        maxPolarAngle={Math.PI / 2.05}
+        minDistance={15}
+        maxDistance={140}
+        target={[0, 0, 0]}
+      />
+    </>
+  );
+}
+
+export default function BattleSim({ units, domain, destroyedIds, salvo, className }: BattleSimProps) {
+  return (
+    <div className={className} style={{ width: "100%", height: "100%" }}>
+      <Canvas shadows camera={{ position: [0, 32, 48], fov: 45 }} dpr={[1, 2]}>
+        <Scene units={units} domain={domain} destroyedIds={destroyedIds} salvo={salvo} />
+      </Canvas>
+    </div>
+  );
+}
