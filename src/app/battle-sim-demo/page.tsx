@@ -8,7 +8,7 @@ import { expandStack, detectDomain, type Domain, type SimUnit } from "@/lib/batt
 const BattleSim = dynamic(() => import("@/components/sim/BattleSim"), { ssr: false });
 
 const SEA_PRESET: Record<string, number> = { battleship: 1, cruiser: 2, destroyer: 3, carrier: 1, submarine: 2 };
-const LAND_PRESET: Record<string, number> = { infantry: 6, artillery: 2, tank: 3, fighter: 2 };
+const LAND_PRESET: Record<string, number> = { infantry: 6, artillery: 1, tank: 3, fighter: 2 };
 
 export default function BattleSimDemo() {
   const [mode, setMode] = useState<Domain>("sea");

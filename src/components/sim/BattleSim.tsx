@@ -8,12 +8,13 @@
  * Placeholder geometry stands in for real models for now — swap `<UnitMesh>`
  * shapes for glTF without touching the formation / firing / destruction loop.
  */
-import { Suspense, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
+import { OrbitControls, useGLTF, Billboard } from "@react-three/drei";
 import * as THREE from "three";
 import { Water } from "three/addons/objects/Water.js";
 import { Sky } from "three/addons/objects/Sky.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import {
   formation,
@@ -56,6 +57,28 @@ function useSunDirection() {
     const theta = THREE.MathUtils.degToRad(azimuth);
     return new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
   }, []);
+}
+
+/**
+ * Image-based lighting from a neutral room environment (procedural, no asset).
+ * Without this, the models' metallic materials have nothing to reflect and
+ * render near-black — this is what makes the ships/tanks read properly.
+ */
+function SceneEnvironment() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    // eslint-disable-next-line react-hooks/immutability
+    scene.environment = env;
+    return () => {
+      scene.environment = null;
+      env.dispose();
+      pmrem.dispose();
+    };
+  }, [gl, scene]);
+  return null;
 }
 
 /** Procedural atmospheric sky (no texture needed). */
@@ -323,9 +346,19 @@ function Burning() {
  * its longest horizontal dimension is `target` world units and its base sits at
  * y=0 — robust to whatever scale/origin the source model shipped with.
  */
-function ModelUnit({ file, target }: { file: string; target: number }) {
+function ModelUnit({
+  file,
+  target,
+  color,
+  onHeight,
+}: {
+  file: string;
+  target: number;
+  color?: string;
+  onHeight?: (h: number) => void;
+}) {
   const { scene } = useGLTF(modelUrl(file));
-  const obj = useMemo(() => {
+  const { obj, height } = useMemo(() => {
     const c = cloneSkinned(scene);
     c.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(c);
@@ -339,38 +372,91 @@ function ModelUnit({ file, target }: { file: string; target: number }) {
       size = box.getSize(new THREE.Vector3());
     }
     const center = box.getCenter(new THREE.Vector3());
-    const longest = Math.max(size.x, size.z) || 1;
-    const s = target / longest;
-    // center horizontally, drop base to y=0
+    // Scale by the LARGEST overall dimension so tall/thin models (a standing
+    // soldier) aren't blown up by their tiny footprint.
+    const largest = Math.max(size.x, size.y, size.z) || 1;
+    const s = target / largest;
     c.position.set(
       c.position.x - center.x,
       c.position.y - box.min.y,
       c.position.z - center.z,
     );
+    const tint = color ? new THREE.Color(color) : null;
     c.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        m.castShadow = true;
-        m.receiveShadow = true;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        sm.side = THREE.DoubleSide; // show thin one-sided surfaces (carrier deck)
+        if (tint) sm.color = tint;
       }
     });
     const g = new THREE.Group();
     g.add(c);
     g.scale.setScalar(s);
-    return g;
-  }, [scene, target]);
+    return { obj: g, height: size.y * s };
+  }, [scene, target, color]);
+
+  useEffect(() => {
+    onHeight?.(height);
+  }, [height, onHeight]);
+
   return <primitive object={obj} />;
 }
 
-/** Colored ring under a unit so sides read at a glance; scales with the unit. */
-function SideMarker({ side, size }: { side: Side; size: number }) {
+/**
+ * Sleek health bar that floats above a unit and billboards toward the camera.
+ * Colored by side (attacker red / defender blue) over a dark backing; drains
+ * to empty when the unit is destroyed.
+ */
+function HealthBar({
+  side,
+  y,
+  width,
+  destroyed,
+}: {
+  side: Side;
+  y: number;
+  width: number;
+  destroyed: boolean;
+}) {
+  const fill = useRef<THREE.Mesh>(null);
+  const root = useRef<THREE.Group>(null);
+  const hp = useRef(1);
+  const W = width;
+  const H = Math.max(0.18, width * 0.16);
   const color = side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
-  const outer = Math.max(1.2, size * 0.5);
+
+  useFrame((_, dt) => {
+    if (destroyed) hp.current = Math.max(0, hp.current - dt * 1.1);
+    const m = fill.current;
+    if (m) {
+      m.scale.x = Math.max(0.0001, hp.current);
+      m.position.x = -(W / 2) * (1 - hp.current);
+    }
+    if (root.current) root.current.visible = hp.current > 0.02;
+  });
+
   return (
-    <mesh position={[0, 0.06, 0]} rotation-x={-Math.PI / 2}>
-      <ringGeometry args={[outer * 0.78, outer, 32]} />
-      <meshBasicMaterial color={color} transparent opacity={0.8} side={THREE.DoubleSide} />
-    </mesh>
+    <Billboard position={[0, y, 0]}>
+      <group ref={root}>
+        <mesh position={[0, 0, -0.02]}>
+          <planeGeometry args={[W + 0.18, H + 0.18]} />
+          <meshBasicMaterial color="#0a0d11" transparent opacity={0.8} />
+        </mesh>
+        <mesh position={[0, 0, -0.01]}>
+          <planeGeometry args={[W, H]} />
+          <meshBasicMaterial color="#1b212a" />
+        </mesh>
+        <mesh ref={fill}>
+          <planeGeometry args={[W, H]} />
+          <meshBasicMaterial color={color} toneMapped={false} />
+        </mesh>
+      </group>
+    </Billboard>
   );
 }
 
@@ -388,6 +474,11 @@ function Unit({
   const color = placement.unit.side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
   const sinkRef = useRef(0);
   const bobSeed = seedFrom(placement.unit.id);
+  const [modelH, setModelH] = useState<number | null>(null);
+
+  const fallbackTop = vis.air ? 1.6 : (vis.target ?? vis.size) * 0.5;
+  const barY = (vis.air ? 0 : (modelH ?? fallbackTop)) + (vis.air ? 1.4 : 0.8);
+  const barW = Math.min(4.5, Math.max(1.8, (vis.target ?? vis.size) * 0.42));
 
   useFrame(({ clock }, dt) => {
     const g = group.current;
@@ -421,11 +512,16 @@ function Unit({
   return (
     <group ref={group} rotation-y={placement.rotationY} position={[placement.x, 0, placement.z]}>
       {vis.model ? (
-        <ModelUnit file={vis.model} target={vis.target ?? vis.size} />
+        <ModelUnit
+          file={vis.model}
+          target={vis.target ?? vis.size}
+          color={vis.color}
+          onHeight={setModelH}
+        />
       ) : (
         <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
       )}
-      {!vis.air && <SideMarker side={placement.unit.side} size={vis.target ?? vis.size} />}
+      <HealthBar side={placement.unit.side} y={barY} width={barW} destroyed={destroyed} />
       {destroyed && <Burning />}
     </group>
   );
@@ -554,6 +650,7 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
 
   return (
     <>
+      <SceneEnvironment />
       <SkyDome sun={sun} />
       <hemisphereLight args={["#cfe2ff", domain === "sea" ? "#13334a" : "#33401f", 0.5]} />
       <directionalLight
@@ -603,7 +700,7 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, classNam
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
         shadows
-        camera={{ position: [0, 26, 105], fov: 50 }}
+        camera={{ position: [0, 34, 135], fov: 50 }}
         dpr={[1, 2]}
         gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
       >

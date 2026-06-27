@@ -29,24 +29,26 @@ export interface UnitVisual {
   air?: boolean;
   /** glTF model basename in /assets/sim/models/<model>.glb (omit for placeholder) */
   model?: string;
-  /** desired longest horizontal dimension in world units (auto-scales the model) */
+  /** desired largest dimension in world units (auto-scales the model) */
   target?: number;
+  /** optional material color override (e.g. force the submarine black) */
+  color?: string;
 }
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
   // Every surface ship uses the same warship hull; carrier & sub are distinct.
-  battleship: { shape: "warship", size: 11, model: "warship", target: 12 },
-  cruiser: { shape: "warship", size: 8, model: "warship", target: 9 },
-  destroyer: { shape: "warship", size: 7, model: "warship", target: 8 },
-  transport: { shape: "warship", size: 8, model: "warship", target: 9 },
-  carrier: { shape: "carrier", size: 13, model: "carrier", target: 15 },
-  submarine: { shape: "sub", size: 7, model: "submarine", target: 8 },
+  battleship: { shape: "warship", size: 15, model: "warship", target: 16 },
+  cruiser: { shape: "warship", size: 11, model: "warship", target: 12 },
+  destroyer: { shape: "warship", size: 10, model: "warship", target: 11 },
+  transport: { shape: "warship", size: 11, model: "warship", target: 12 },
+  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22 },
+  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#161616" },
   fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5 },
   bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7 },
-  infantry: { shape: "infantry", size: 2.2, model: "infantry", target: 2.6 },
-  artillery: { shape: "artillery", size: 3, model: "artillery", target: 3.6 },
-  tank: { shape: "tank", size: 3.6, model: "tank", target: 4.2 },
-  aaGun: { shape: "artillery", size: 3, model: "artillery", target: 3.4 },
+  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4 },
+  artillery: { shape: "artillery", size: 7, model: "artillery", target: 8 },
+  tank: { shape: "tank", size: 6, model: "tank", target: 6.5 },
+  aaGun: { shape: "artillery", size: 7, model: "artillery", target: 7 },
   factory: { shape: "structure", size: 4 },
 };
 
@@ -104,9 +106,9 @@ export interface Placement {
 export function formation(units: SimUnit[], side: Side): Placement[] {
   const dir = side === "attacker" ? -1 : 1;
   const perRow = Math.max(3, Math.ceil(Math.sqrt(units.length) * 1.3));
-  const spacingX = 11;
-  const spacingZ = 13;
-  const baseZ = dir * 20;
+  const spacingX = 13;
+  const spacingZ = 16;
+  const baseZ = dir * 24;
   return units.map((unit, i) => {
     const row = Math.floor(i / perRow);
     const col = i % perRow;
