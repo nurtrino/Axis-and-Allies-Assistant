@@ -8,10 +8,12 @@
  * Placeholder geometry stands in for real models for now — swap `<UnitMesh>`
  * shapes for glTF without touching the formation / firing / destruction loop.
  */
-import { useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Suspense, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import { Water } from "three/addons/objects/Water.js";
+import { Sky } from "three/addons/objects/Sky.js";
 import {
   formation,
   visualFor,
@@ -41,47 +43,91 @@ function waveHeight(x: number, z: number, t: number): number {
 
 // ───────────────────────────── Battlefield ──────────────────────────────────
 
-function Ocean() {
-  const ref = useRef<THREE.Mesh>(null);
-  const geo = useMemo(() => new THREE.PlaneGeometry(400, 400, 90, 90), []);
-  const base = useMemo(() => Float32Array.from(geo.attributes.position.array), [geo]);
-
-  useFrame(({ clock }) => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const t = clock.elapsedTime;
-    const pos = mesh.geometry.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      pos.setZ(i, waveHeight(base[i * 3], base[i * 3 + 1], t));
-    }
-    pos.needsUpdate = true;
-    mesh.geometry.computeVertexNormals();
-  });
-
-  return (
-    <mesh ref={ref} geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
-      <meshStandardMaterial color="#15466b" metalness={0.2} roughness={0.35} />
-    </mesh>
-  );
+/** Sun direction shared by the sky dome, water reflection and key light. */
+function useSunDirection() {
+  return useMemo(() => {
+    const elevation = 18; // degrees above the horizon — warm, low light
+    const azimuth = 165;
+    const phi = THREE.MathUtils.degToRad(90 - elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    return new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
+  }, []);
 }
 
+/** Procedural atmospheric sky (no texture needed). */
+function SkyDome({ sun }: { sun: THREE.Vector3 }) {
+  const sky = useMemo(() => {
+    const s = new Sky();
+    s.scale.setScalar(15000);
+    const u = s.material.uniforms;
+    u.turbidity.value = 8;
+    u.rayleigh.value = 1.8;
+    u.mieCoefficient.value = 0.004;
+    u.mieDirectionalG.value = 0.85;
+    u.sunPosition.value.copy(sun);
+    return s;
+  }, [sun]);
+  return <primitive object={sky} />;
+}
+
+/** Realistic ocean using three's Water shader (reflections + animated normals). */
+function Ocean({ sun }: { sun: THREE.Vector3 }) {
+  const normals = useLoader(THREE.TextureLoader, "/assets/sim/waternormals.jpg");
+  const water = useMemo(() => {
+    const n = normals.clone();
+    n.wrapS = n.wrapT = THREE.RepeatWrapping;
+    n.needsUpdate = true;
+    const w = new Water(new THREE.PlaneGeometry(4000, 4000), {
+      textureWidth: 512,
+      textureHeight: 512,
+      waterNormals: n,
+      sunDirection: sun.clone().normalize(),
+      sunColor: 0xffffff,
+      waterColor: 0x183a55,
+      distortionScale: 3.2,
+      fog: false,
+    });
+    w.rotation.x = -Math.PI / 2;
+    return w;
+  }, [normals, sun]);
+
+  const ref = useRef<Water>(null);
+  useFrame((_, dt) => {
+    const w = ref.current;
+    if (w) (w.material as THREE.ShaderMaterial).uniforms.time.value += dt * 0.6;
+  });
+
+  return <primitive ref={ref} object={water} />;
+}
+
+/** Realistic grass terrain: tiled grass texture over gently rolling hills. */
 function Ground() {
+  const grass = useLoader(THREE.TextureLoader, "/assets/sim/grass.jpg");
+  const tex = useMemo(() => {
+    const t = grass.clone();
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(60, 60);
+    t.anisotropy = 8;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  }, [grass]);
   const geo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(400, 400, 60, 60);
+    const g = new THREE.PlaneGeometry(800, 800, 80, 80);
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const y = pos.getY(i);
-      // low rolling hills, flattened near the centre where units stand
-      const edge = Math.min(1, (Math.abs(x) + Math.abs(y)) / 120);
-      pos.setZ(i, (Math.sin(x * 0.07) * Math.cos(y * 0.06)) * 3 * edge);
+      // rolling hills, flattened where the units stand near the centre
+      const edge = Math.min(1, (Math.abs(x) + Math.abs(y)) / 140);
+      pos.setZ(i, Math.sin(x * 0.05) * Math.cos(y * 0.045) * 5 * edge);
     }
     g.computeVertexNormals();
     return g;
   }, []);
   return (
     <mesh geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
-      <meshStandardMaterial color="#4f5d39" roughness={1} />
+      <meshStandardMaterial map={tex} roughness={1} />
     </mesh>
   );
 }
@@ -437,21 +483,28 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
     return [...att, ...def];
   }, [units]);
   const destroyed = useMemo(() => new Set(destroyedIds), [destroyedIds]);
+  const sun = useSunDirection();
 
   return (
     <>
-      <hemisphereLight args={["#bcd4ff", domain === "sea" ? "#0a2a44" : "#2a3320", 0.7]} />
+      <SkyDome sun={sun} />
+      <hemisphereLight args={["#cfe2ff", domain === "sea" ? "#13334a" : "#33401f", 0.5]} />
       <directionalLight
-        position={[40, 60, 20]}
-        intensity={2}
+        position={[sun.x * 120, sun.y * 120, sun.z * 120]}
+        intensity={2.4}
+        color="#fff4e0"
         castShadow
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-60}
+        shadow-camera-right={60}
+        shadow-camera-top={60}
+        shadow-camera-bottom={-60}
       />
-      <ambientLight intensity={0.25} />
-      <fog attach="fog" args={[domain === "sea" ? "#9fc0d8" : "#cfd8c0", 60, 220]} />
-      <color attach="background" args={[domain === "sea" ? "#9fc0d8" : "#cfd8c0"]} />
+      <ambientLight intensity={0.3} />
 
-      {domain === "sea" ? <Ocean /> : <Ground />}
+      <Suspense fallback={null}>
+        {domain === "sea" ? <Ocean sun={sun} /> : <Ground />}
+      </Suspense>
 
       {placements.map((p) => (
         <Unit
@@ -478,7 +531,12 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
 export default function BattleSim({ units, domain, destroyedIds, salvo, className }: BattleSimProps) {
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
-      <Canvas shadows camera={{ position: [0, 32, 48], fov: 45 }} dpr={[1, 2]}>
+      <Canvas
+        shadows
+        camera={{ position: [0, 32, 48], fov: 45 }}
+        dpr={[1, 2]}
+        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
+      >
         <Scene units={units} domain={domain} destroyedIds={destroyedIds} salvo={salvo} />
       </Canvas>
     </div>
