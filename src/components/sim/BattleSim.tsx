@@ -10,18 +10,22 @@
  */
 import { Suspense, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useLoader } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { Water } from "three/addons/objects/Water.js";
 import { Sky } from "three/addons/objects/Sky.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import {
   formation,
   visualFor,
+  MODEL_FILES,
   type Domain,
   type Placement,
   type SimUnit,
   type Side,
 } from "@/lib/battlescene";
+
+const modelUrl = (file: string) => `/assets/sim/models/${file}.glb`;
 
 const ATTACKER_COLOR = "#c0392b";
 const DEFENDER_COLOR = "#3a6ea5";
@@ -312,6 +316,50 @@ function Burning() {
   );
 }
 
+/**
+ * Loads a glTF model, clones it per instance, and auto-scales + grounds it so
+ * its longest horizontal dimension is `target` world units and its base sits at
+ * y=0 — robust to whatever scale/origin the source model shipped with.
+ */
+function ModelUnit({ file, target }: { file: string; target: number }) {
+  const { scene } = useGLTF(modelUrl(file));
+  const obj = useMemo(() => {
+    const c = cloneSkinned(scene);
+    const box = new THREE.Box3().setFromObject(c);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const longest = Math.max(size.x, size.z) || 1;
+    const s = target / longest;
+    // center horizontally, drop base to y=0
+    c.position.set(-center.x, -box.min.y, -center.z);
+    c.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) {
+        m.castShadow = true;
+        m.receiveShadow = true;
+      }
+    });
+    const g = new THREE.Group();
+    g.add(c);
+    g.scale.setScalar(s);
+    return g;
+  }, [scene, target]);
+  return <primitive object={obj} />;
+}
+
+/** Small colored disc under a unit so sides read at a glance. */
+function SideMarker({ side }: { side: Side }) {
+  const color = side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
+  return (
+    <mesh position={[0, 0.06, 0]} rotation-x={-Math.PI / 2}>
+      <ringGeometry args={[0.7, 1.05, 24]} />
+      <meshBasicMaterial color={color} transparent opacity={0.85} side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
 function Unit({
   placement,
   domain,
@@ -358,7 +406,12 @@ function Unit({
 
   return (
     <group ref={group} rotation-y={placement.rotationY} position={[placement.x, 0, placement.z]}>
-      <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
+      {vis.model ? (
+        <ModelUnit file={vis.model} target={vis.target ?? vis.size} />
+      ) : (
+        <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
+      )}
+      {!vis.air && <SideMarker side={placement.unit.side} />}
       {destroyed && <Burning />}
     </group>
   );
@@ -504,16 +557,16 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
 
       <Suspense fallback={null}>
         {domain === "sea" ? <Ocean sun={sun} /> : <Ground />}
-      </Suspense>
 
-      {placements.map((p) => (
-        <Unit
-          key={p.unit.id}
-          placement={p}
-          domain={domain}
-          destroyed={destroyed.has(p.unit.id)}
-        />
-      ))}
+        {placements.map((p) => (
+          <Unit
+            key={p.unit.id}
+            placement={p}
+            domain={domain}
+            destroyed={destroyed.has(p.unit.id)}
+          />
+        ))}
+      </Suspense>
 
       <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} />
 
@@ -527,6 +580,9 @@ function Scene({ units, domain, destroyedIds, salvo }: Omit<BattleSimProps, "cla
     </>
   );
 }
+
+// Warm the glTF cache so models pop in fast on first battle.
+for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, className }: BattleSimProps) {
   return (

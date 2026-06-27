@@ -26,6 +26,7 @@
     "three": "^0.185.0"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.4.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
@@ -35,6 +36,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "fbx2gltf": "^0.9.7-p1",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "typescript": "^5"

@@ -22,29 +22,38 @@ export interface SimUnit {
 }
 
 export interface UnitVisual {
-  shape: Shape;
+  shape: Shape; // fallback placeholder when no model is present
   /** approximate footprint length in world units, for spacing */
   size: number;
   /** true for aircraft — they hover above the field */
   air?: boolean;
+  /** glTF model basename in /assets/sim/models/<model>.glb (omit for placeholder) */
+  model?: string;
+  /** desired longest horizontal dimension in world units (auto-scales the model) */
+  target?: number;
 }
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
   // Every surface ship uses the same warship hull; carrier & sub are distinct.
-  battleship: { shape: "warship", size: 4 },
-  cruiser: { shape: "warship", size: 3.4 },
-  destroyer: { shape: "warship", size: 3 },
-  transport: { shape: "warship", size: 3.2 },
-  carrier: { shape: "carrier", size: 5 },
-  submarine: { shape: "sub", size: 2.4 },
-  fighter: { shape: "plane", size: 1.6, air: true },
-  bomber: { shape: "plane", size: 2.2, air: true },
-  infantry: { shape: "infantry", size: 0.9 },
-  artillery: { shape: "artillery", size: 1.2 },
-  tank: { shape: "tank", size: 1.4 },
-  aaGun: { shape: "artillery", size: 1.1 },
+  battleship: { shape: "warship", size: 6, model: "warship", target: 7 },
+  cruiser: { shape: "warship", size: 5, model: "warship", target: 5.5 },
+  destroyer: { shape: "warship", size: 4.5, model: "warship", target: 5 },
+  transport: { shape: "warship", size: 5, model: "warship", target: 5.5 },
+  carrier: { shape: "carrier", size: 8, model: "carrier", target: 9 },
+  submarine: { shape: "sub", size: 4, model: "submarine", target: 5 },
+  fighter: { shape: "plane", size: 3, air: true, model: "fighter", target: 3.5 },
+  bomber: { shape: "plane", size: 4, air: true, model: "bomber", target: 5 },
+  infantry: { shape: "infantry", size: 1.2, model: "infantry", target: 1.8 },
+  artillery: { shape: "artillery", size: 2, model: "artillery", target: 2.4 },
+  tank: { shape: "tank", size: 2.2, model: "tank", target: 2.8 },
+  aaGun: { shape: "artillery", size: 2, model: "artillery", target: 2.2 },
   factory: { shape: "structure", size: 2.5 },
 };
+
+/** All glTF model basenames used, for preloading. */
+export const MODEL_FILES = Array.from(
+  new Set(Object.values(UNIT_VISUAL).map((v) => v.model).filter((m): m is string => !!m)),
+);
 
 export function visualFor(type: string): UnitVisual {
   return UNIT_VISUAL[type] ?? { shape: "infantry", size: 1 };
