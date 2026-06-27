@@ -65,6 +65,18 @@ export interface TurnPortalProps {
 
 const fmtIpc = (n: number) => `${n} IPC`;
 
+// Human-readable battle outcome for the resolved-orders list.
+const STATUS_LABELS: Record<string, string> = {
+  attacker_captured: "Captured",
+  attacker_cleared: "Cleared (not held)",
+  defender_won: "Defender held",
+  mutual: "Mutual losses",
+  retreated: "Retreated",
+  ongoing: "Ongoing",
+};
+const prettyStatus = (s: string | null) =>
+  s ? (STATUS_LABELS[s] ?? s.replace(/_/g, " ")) : "Done";
+
 export default function TurnPortal(props: TurnPortalProps) {
   const phase = PHASES.find((p) => p.n === props.activePhase) ?? PHASES[1];
   const [pending, start] = useTransition();
@@ -574,7 +586,7 @@ function ConductCombatPanel(props: TurnPortalProps) {
                   <span style={{ color: "var(--good)" }}>✓</span>
                   → {props.powers.find((p) => p.key === o.defenderNation)?.name ?? o.defenderNation}
                   {o.territory ? ` · ${o.territory}` : ""}
-                  <span className="label">{o.resultStatus ?? "done"}</span>
+                  <span className="label">{prettyStatus(o.resultStatus)}</span>
                 </div>
               ))}
             </div>
