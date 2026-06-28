@@ -662,6 +662,47 @@ function Volley({
   );
 }
 
+/** WASD panning that rides on top of OrbitControls (moves camera + target). */
+function WasdControls({ controlsRef }: { controlsRef: React.RefObject<{ object: THREE.Camera; target: THREE.Vector3; update: () => void } | null> }) {
+  const keys = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    const handle = (down: boolean) => (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "w" || k === "a" || k === "s" || k === "d") keys.current[k] = down;
+    };
+    const dn = handle(true);
+    const up = handle(false);
+    window.addEventListener("keydown", dn);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", dn);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
+  useFrame((_, dt) => {
+    const c = controlsRef.current;
+    if (!c) return;
+    const fwd = new THREE.Vector3();
+    c.object.getWorldDirection(fwd);
+    fwd.y = 0;
+    if (fwd.lengthSq() === 0) return;
+    fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), fwd).normalize();
+    const move = new THREE.Vector3();
+    if (keys.current.w) move.add(fwd);
+    if (keys.current.s) move.sub(fwd);
+    if (keys.current.d) move.add(right);
+    if (keys.current.a) move.sub(right);
+    if (move.lengthSq() === 0) return;
+    move.normalize().multiplyScalar(45 * dt);
+    c.object.position.add(move);
+    c.target.add(move);
+    c.update();
+  });
+  return null;
+}
+
 // ─────────────────────────────── Scene ──────────────────────────────────────
 
 export interface BattleSimProps {
@@ -683,6 +724,7 @@ function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSim
   }, [units]);
   const destroyed = useMemo(() => new Set(destroyedIds), [destroyedIds]);
   const sun = useSunDirection();
+  const controlsRef = useRef<{ object: THREE.Camera; target: THREE.Vector3; update: () => void } | null>(null);
 
   return (
     <>
@@ -718,12 +760,16 @@ function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSim
       <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} firingIds={firingIds} />
 
       <OrbitControls
+        // @ts-expect-error drei forwards the controls instance to the ref
+        ref={controlsRef}
+        makeDefault
         enablePan
         maxPolarAngle={Math.PI / 2.08}
         minDistance={6}
-        maxDistance={220}
+        maxDistance={260}
         target={[0, 0, 0]}
       />
+      <WasdControls controlsRef={controlsRef} />
     </>
   );
 }
@@ -732,11 +778,14 @@ function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSim
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, className }: BattleSimProps) {
+  // Sea battles read better a bit further back; land starts in close.
+  const camPos: [number, number, number] = domain === "sea" ? [0, 24, 92] : [0, 14, 52];
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
+        key={domain}
         shadows
-        camera={{ position: [0, 14, 52], fov: 50 }}
+        camera={{ position: camPos, fov: 50 }}
         dpr={[1, 2]}
         gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
       >

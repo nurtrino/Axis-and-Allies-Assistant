@@ -47,14 +47,14 @@ export const UNIT_VISUAL: Record<string, UnitVisual> = {
   cruiser: { shape: "warship", size: 11, model: "warship", target: 12 },
   destroyer: { shape: "warship", size: 10, model: "warship", target: 11 },
   transport: { shape: "warship", size: 11, model: "warship", target: 12 },
-  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, doubleSide: true },
-  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414" },
-  fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5, autoOrient: false, yaw: Math.PI },
-  bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7, autoOrient: false, yaw: Math.PI },
-  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4, yaw: Math.PI / 2 },
-  artillery: { shape: "artillery", size: 7, model: "artillery", target: 8 },
+  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22 },
+  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414", yaw: Math.PI },
+  fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5, autoOrient: false, yaw: 0 },
+  bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7, autoOrient: false, yaw: 0 },
+  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4, yaw: Math.PI * 1.5 },
+  artillery: { shape: "artillery", size: 7, model: "artillery", target: 8, yaw: Math.PI / 2 },
   tank: { shape: "tank", size: 6, model: "tank", target: 6.5, color: "#3b4030" },
-  aaGun: { shape: "artillery", size: 7, model: "artillery", target: 7 },
+  aaGun: { shape: "artillery", size: 7, model: "artillery", target: 7, yaw: Math.PI / 2 },
   factory: { shape: "structure", size: 4 },
 };
 
@@ -130,7 +130,8 @@ export function formation(units: SimUnit[], side: Side): Placement[] {
   );
   const spacingX = maxSize * 0.95;
   const spacingZ = maxSize * 1.1;
-  const baseZ = dir * (maxSize * 0.9 + 8);
+  // Closer to the enemy line (smaller gap between the two fleets).
+  const baseZ = dir * (maxSize * 0.55 + 5);
   return units.map((unit, i) => {
     const row = Math.floor(i / perRow);
     const col = i % perRow;
