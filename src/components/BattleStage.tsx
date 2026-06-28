@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { UNITS, UNITS_BY_KEY } from "@/lib/anniversary.config";
 import UnitIcon from "./UnitIcon";
+import { detectDomain, type SimUnit } from "@/lib/battlescene";
 import {
   createBattle,
   peek,
@@ -15,6 +17,9 @@ import {
   type BattleEvent,
   type BattleUnit,
 } from "@/lib/battle";
+
+// 3D battlefield — client-only (WebGL); driven by the engine state below.
+const BattleSim = dynamic(() => import("./sim/BattleSim"), { ssr: false });
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -259,6 +264,10 @@ export default function BattleStage({
   const [diceReady, setDiceReady] = useState(false);
   const [hitFlash, setHitFlash] = useState<{ n: number; side: Side; key: number } | null>(null);
   const [padRoll, setPadRoll] = useState<{ rolls: { value: number; hit: boolean }[]; key: number } | null>(null);
+  // 3D battlefield state (units keyed by engine uid).
+  const [simUnits, setSimUnits] = useState<SimUnit[]>([]);
+  const [firingIds, setFiringIds] = useState<string[]>([]);
+  const [salvo, setSalvo] = useState(0);
 
   // Re-seed when a different order is loaded into the battle page.
   const seededRef = useRef<string | undefined>(seedKey);
@@ -310,6 +319,17 @@ export default function BattleStage({
   const step = state ? peek(state) : null;
   const summary = state && !step ? summarize(state) : null;
 
+  // Derive the 3D view from the engine: which units are gone, and the terrain.
+  const simDestroyed = useMemo(() => {
+    if (!state) return [];
+    const alive = new Set<string>();
+    for (const u of [...state.attacker, ...state.defender]) {
+      if (u.hp > 0) alive.add(String(u.uid));
+    }
+    return simUnits.filter((u) => !alive.has(u.id)).map((u) => u.id);
+  }, [state, simUnits]);
+  const simDomain = useMemo(() => detectDomain(simUnits.map((u) => u.type)), [simUnits]);
+
   // When the battle resolves, automatically record each side's losses to the
   // chosen nations' round entries (once per battle).
   const resolvedRef = useRef(false);
@@ -346,7 +366,13 @@ export default function BattleStage({
         const d: Stack = { infantry: 3 };
         setAttackerStack(a);
         setDefenderStack(d);
-        setState(createBattle(a, d, { amphibious }));
+        const st = createBattle(a, d, { amphibious });
+        setSimUnits(
+          [...st.attacker, ...st.defender].map((u) => ({ id: String(u.uid), type: u.key, side: u.side })),
+        );
+        setFiringIds([]);
+        setSalvo(0);
+        setState(st);
         setMode("battle");
       }, 900);
       return () => clearTimeout(t);
@@ -378,7 +404,17 @@ export default function BattleStage({
     if (totalUnits(attackerStack) === 0) return;
     setPadRoll(null);
     setHitFlash(null);
-    setState(createBattle(attackerStack, defenderStack, { amphibious }));
+    const st = createBattle(attackerStack, defenderStack, { amphibious });
+    setSimUnits(
+      [...st.attacker, ...st.defender].map((u) => ({
+        id: String(u.uid),
+        type: u.key,
+        side: u.side,
+      })),
+    );
+    setFiringIds([]);
+    setSalvo(0);
+    setState(st);
     setMode("battle");
   }
 
@@ -420,6 +456,12 @@ export default function BattleStage({
         });
         window.setTimeout(() => setHitFlash(null), 1500);
       }
+      // Only units that scored a hit fire a shot in the 3D view.
+      const hitters = step.dice
+        .filter((d, i) => (values[i] ?? 9) <= d.hitOn)
+        .map((d) => String(d.uid));
+      setFiringIds(hitters);
+      setSalvo((s) => s + 1);
       setState(resolveRoll(state, values));
     } finally {
       setRolling(false);
@@ -442,6 +484,9 @@ export default function BattleStage({
     setPadRoll(null);
     setHitFlash(null);
     setState(null);
+    setSimUnits([]);
+    setFiringIds([]);
+    setSalvo(0);
     setMode("setup");
   }
 
@@ -453,6 +498,23 @@ export default function BattleStage({
         <div className="grid gap-4 md:grid-cols-2">
           <ForceBuilder side="attacker" stack={attackerStack} onChange={(k, d) => changeStack("attacker", k, d)} />
           <ForceBuilder side="defender" stack={defenderStack} onChange={(k, d) => changeStack("defender", k, d)} />
+        </div>
+      )}
+
+      {/* 3D battlefield (battle mode) — driven by the engine: only units that
+          hit fire, casualties sink/burn, real units on real terrain. */}
+      {mode === "battle" && simUnits.length > 0 && (
+        <div
+          className="rounded-lg overflow-hidden mx-auto"
+          style={{ width: "100%", height: "min(60vh, 520px)", border: "1px solid var(--border)" }}
+        >
+          <BattleSim
+            units={simUnits}
+            domain={simDomain}
+            destroyedIds={simDestroyed}
+            salvo={salvo}
+            firingIds={firingIds}
+          />
         </div>
       )}
 

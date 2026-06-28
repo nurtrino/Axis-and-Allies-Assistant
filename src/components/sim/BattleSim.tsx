@@ -411,7 +411,13 @@ function ModelUnit({
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       for (const mat of mats) {
         const sm = mat as THREE.MeshStandardMaterial;
-        if (doubleSide) sm.side = THREE.DoubleSide;
+        if (doubleSide) {
+          sm.side = THREE.DoubleSide;
+          // force opaque so the deck doesn't ghost/see-through
+          sm.transparent = false;
+          sm.opacity = 1;
+          sm.depthWrite = true;
+        }
         if (tint) {
           // matte the override so env lighting doesn't turn it chrome
           sm.color = tint;
