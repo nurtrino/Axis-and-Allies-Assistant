@@ -404,13 +404,13 @@ function ModelUnit({
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       for (const mat of mats) {
         const sm = mat as THREE.MeshStandardMaterial;
-        if (doubleSide) {
-          sm.side = THREE.DoubleSide;
-          // force opaque so the deck doesn't ghost/see-through
-          sm.transparent = false;
-          sm.opacity = 1;
-          sm.depthWrite = true;
-        }
+        // Force opaque: several models ship BLEND materials (e.g. the soldier
+        // body) which, double-sided, render washed-out/see-through. These war
+        // units don't need transparency.
+        sm.transparent = false;
+        sm.opacity = 1;
+        sm.depthWrite = true;
+        if (doubleSide) sm.side = THREE.DoubleSide;
         if (tint) {
           // matte the override so env lighting doesn't turn it chrome
           sm.color = tint;
