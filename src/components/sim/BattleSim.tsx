@@ -42,9 +42,10 @@ function seedFrom(id: string): number {
 
 /** Gentle procedural wave height so ships and the ocean surface agree. */
 function waveHeight(x: number, z: number, t: number): number {
+  // calmer swell — gentle bob, not choppy seas
   return (
-    Math.sin(x * 0.18 + t * 0.9) * 0.35 +
-    Math.cos(z * 0.22 + t * 0.7) * 0.3
+    Math.sin(x * 0.16 + t * 0.7) * 0.18 +
+    Math.cos(z * 0.2 + t * 0.55) * 0.15
   );
 }
 
@@ -53,7 +54,7 @@ function waveHeight(x: number, z: number, t: number): number {
 /** Sun direction shared by the sky dome, water reflection and key light. */
 function useSunDirection() {
   return useMemo(() => {
-    const elevation = 18; // degrees above the horizon — warm, low light
+    const elevation = 30; // higher sun → bluer sky, less hazy white horizon
     const azimuth = 165;
     const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuth);
@@ -113,7 +114,7 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
       sunDirection: sun.clone().normalize(),
       sunColor: 0x8d99a5, // dimmer glint
       waterColor: 0x0d2030, // darker, deeper sea
-      distortionScale: 3.6, // choppier surface → less mirror-like reflection
+      distortionScale: 2.6, // calmer surface
       fog: false,
     });
     // smaller, finer wave pattern (scale the normal map tiling up)
@@ -806,9 +807,9 @@ function Scene({
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, className }: BattleSimProps) {
-  // Elevated broadside view looking DOWN at the battlefield (keeps the bright
-  // sky out of frame and frames the units). Sea is bigger → further back.
-  const camPos: [number, number, number] = domain === "sea" ? [50, 38, 40] : [24, 19, 18];
+  // Broadside view: elevated enough to frame the units, low enough that the
+  // (now bluer) sky still shows above the horizon. Sea is bigger → further back.
+  const camPos: [number, number, number] = domain === "sea" ? [56, 22, 40] : [24, 16, 18];
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
@@ -816,7 +817,7 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, firingId
         shadows
         camera={{ position: camPos, fov: 50 }}
         dpr={[1, 2]}
-        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
+        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.5 }}
       >
         <Scene
           units={units}

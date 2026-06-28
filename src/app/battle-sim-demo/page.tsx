@@ -7,7 +7,7 @@ import { expandStack, detectDomain, type Domain, type SimUnit } from "@/lib/batt
 // Canvas needs the DOM — load the simulator client-side only.
 const BattleSim = dynamic(() => import("@/components/sim/BattleSim"), { ssr: false });
 
-const SEA_PRESET: Record<string, number> = { battleship: 1, carrier: 1, destroyer: 1, submarine: 1 };
+const SEA_PRESET: Record<string, number> = { battleship: 1, carrier: 1, destroyer: 1, submarine: 1, fighter: 2 };
 const LAND_PRESET: Record<string, number> = { infantry: 3, tank: 1, artillery: 1, fighter: 1 };
 
 const HIT_CHANCE = 0.5;

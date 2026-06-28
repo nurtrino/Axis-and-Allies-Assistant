@@ -25,13 +25,13 @@ export interface Phase {
   implemented: boolean;
 }
 
+// Active phases. Combat Move (3), Noncombat Move (5) and Mobilize (6) were
+// retired as redundant; their phase numbers are intentionally NOT reused so any
+// existing campaign data / activePhase value stays valid.
 export const PHASES: Phase[] = [
   { n: 1, key: "research", name: "Research & Development", short: "R&D", optional: true, implemented: false },
   { n: 2, key: "purchase", name: "Purchase Units", short: "Purchase", implemented: true },
-  { n: 3, key: "combatMove", name: "Combat Move", short: "Combat Move", implemented: true },
   { n: 4, key: "combat", name: "Conduct Combat", short: "Conduct Combat", implemented: true },
-  { n: 5, key: "noncombatMove", name: "Noncombat Move", short: "Noncombat", implemented: true },
-  { n: 6, key: "mobilize", name: "Mobilize New Units", short: "Mobilize", implemented: true },
   { n: 7, key: "income", name: "Collect Income", short: "Income", implemented: true },
 ];
 
@@ -48,9 +48,14 @@ export function isPhaseEnabled(phase: Phase, includeResearch: boolean): boolean 
   return true;
 }
 
+/** Ordered phase numbers in play for this campaign. */
+export function enabledPhaseNumbers(includeResearch: boolean): number[] {
+  return PHASES.filter((p) => isPhaseEnabled(p, includeResearch)).map((p) => p.n);
+}
+
 /** The starting phase for a turn, honoring the research toggle. */
 export function startPhase(includeResearch: boolean): number {
-  return includeResearch ? 1 : FIRST_PHASE;
+  return enabledPhaseNumbers(includeResearch)[0] ?? FIRST_PHASE;
 }
 
 /** Index of a power within the turn order (−1 if not found). */
@@ -83,13 +88,13 @@ export function advance(
   activePhase: number,
   includeResearch: boolean,
 ): AdvanceResult {
-  if (activePhase < LAST_PHASE) {
-    let next = activePhase + 1;
-    // Skip R&D should it ever be the "next" phase with research disabled.
-    if (next === 1 && !includeResearch) next = FIRST_PHASE;
+  const order = enabledPhaseNumbers(includeResearch);
+  // Next enabled phase strictly after the current one (handles retired phases).
+  const next = order.find((n) => n > activePhase);
+  if (next !== undefined) {
     return { activePowerKey, activePhase: next, turnEnded: false, roundEnded: false };
   }
-  // End of this power's turn → hand off.
+  // End of this power's turn → hand off to the next power's first phase.
   const { power, wrapped } = nextPower(activePowerKey);
   return {
     activePowerKey: power,
