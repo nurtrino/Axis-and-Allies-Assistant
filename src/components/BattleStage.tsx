@@ -178,19 +178,41 @@ function EventRow({ ev }: { ev: BattleEvent }) {
   );
 }
 
-const STATUS_TEXT: Record<string, { label: string; color: string }> = {
-  attacker_captured: { label: "Attacker captures the territory", color: ATTACKER_TINT },
-  attacker_cleared: { label: "Attacker clears the zone (no land unit to hold)", color: ATTACKER_TINT },
-  defender_won: { label: "Defender holds!", color: DEFENDER_TINT },
-  mutual: { label: "Mutual annihilation", color: "var(--muted)" },
-  retreated: { label: "Attacker retreated", color: "var(--muted)" },
+const STATUS_COLOR: Record<string, string> = {
+  attacker_captured: ATTACKER_TINT,
+  attacker_cleared: ATTACKER_TINT,
+  defender_won: DEFENDER_TINT,
+  mutual: "var(--muted)",
+  retreated: "var(--muted)",
 };
+
+/** Clear, country-named outcome line. */
+function statusLine(status: string, atk: string, def: string, terr?: string): string {
+  const where = terr && terr.trim() ? terr.trim() : "the territory";
+  switch (status) {
+    case "attacker_captured":
+      return `${atk} takes ${where}`;
+    case "attacker_cleared":
+      return `${atk} wipes out ${def} — no land unit to hold ${where}`;
+    case "defender_won":
+      return `${def} holds ${where}`;
+    case "mutual":
+      return `Mutual annihilation — both forces destroyed`;
+    case "retreated":
+      return `${atk} retreats`;
+    default:
+      return status;
+  }
+}
 
 export default function BattleStage({
   onLogResult,
   initialAttacker,
   initialAmphibious,
   seedKey,
+  attackerName = "Attacker",
+  defenderName = "Defender",
+  territoryName,
 }: {
   onLogResult?: (data: { attackerLosses: Stack; defenderLosses: Stack; summaryText: string; status: string }) => void;
   /** Pre-seed the attacker stack (e.g. from a declared combat-move order). */
@@ -198,6 +220,10 @@ export default function BattleStage({
   initialAmphibious?: boolean;
   /** Changing this re-applies the seed and returns to setup (new order loaded). */
   seedKey?: string;
+  /** Country names for a clear outcome line. */
+  attackerName?: string;
+  defenderName?: string;
+  territoryName?: string;
 }) {
   const [mode, setMode] = useState<"setup" | "battle">("setup");
   const [attackerStack, setAttackerStack] = useState<Stack>(initialAttacker ?? {});
@@ -270,7 +296,20 @@ export default function BattleStage({
     for (const u of [...state.attacker, ...state.defender]) {
       if (u.hp > 0) alive.add(String(u.uid));
     }
-    return simUnits.filter((u) => !alive.has(u.id)).map((u) => u.id);
+    // Once the battle is over, the losing side's leftover (non-fighting)
+    // units are removed too, so a winner never leaves enemy units standing.
+    const over = !peek(state);
+    const s = state.status;
+    const loseDef = over && (s === "attacker_captured" || s === "attacker_cleared" || s === "mutual");
+    const loseAtk = over && (s === "defender_won" || s === "mutual");
+    return simUnits
+      .filter((u) => {
+        if (!alive.has(u.id)) return true;
+        if (loseDef && u.side === "defender") return true;
+        if (loseAtk && u.side === "attacker") return true;
+        return false;
+      })
+      .map((u) => u.id);
   }, [state, simUnits]);
   const simDomain = useMemo(() => detectDomain(simUnits.map((u) => u.type)), [simUnits]);
   const simHealth = useMemo(() => {
@@ -296,7 +335,7 @@ export default function BattleStage({
       onLogResult({
         attackerLosses: lossStack(attackerStack, summary.attackerSurvivors),
         defenderLosses: lossStack(defenderStack, summary.defenderSurvivors),
-        summaryText: STATUS_TEXT[summary.status]?.label ?? summary.status,
+        summaryText: statusLine(summary.status, attackerName, defenderName, territoryName),
         status: summary.status,
       });
     }
@@ -593,8 +632,8 @@ export default function BattleStage({
       {/* Outcome */}
       {summary && (
         <div className="panel p-5">
-          <div className="text-lg font-semibold" style={{ color: STATUS_TEXT[summary.status]?.color }}>
-            {STATUS_TEXT[summary.status]?.label ?? summary.status}
+          <div className="text-lg font-semibold" style={{ color: STATUS_COLOR[summary.status] }}>
+            {statusLine(summary.status, attackerName, defenderName, territoryName)}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <div><div className="label">Rounds</div><div className="stat text-xl">{summary.rounds}</div></div>

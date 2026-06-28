@@ -213,6 +213,9 @@ export default function CampaignBattle({
         initialAttacker={initialOrder?.units}
         initialAmphibious={initialOrder?.amphibious}
         seedKey={initialOrder?.id}
+        attackerName={nameOf(attackerNation)}
+        defenderName={nameOf(defenderNation)}
+        territoryName={territory}
       />
 
       <BombingRaid

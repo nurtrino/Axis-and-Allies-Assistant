@@ -111,8 +111,8 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
       textureHeight: 512,
       waterNormals: n,
       sunDirection: sun.clone().normalize(),
-      sunColor: 0xaab6c2, // dimmer glint
-      waterColor: 0x173649,
+      sunColor: 0x8d99a5, // dimmer glint
+      waterColor: 0x0d2030, // darker, deeper sea
       distortionScale: 3.6, // choppier surface → less mirror-like reflection
       fog: false,
     });
@@ -806,9 +806,9 @@ function Scene({
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, className }: BattleSimProps) {
-  // Low broadside view (looking across the line) for both — units face each
-  // other horizontally. Sea is bigger so the camera sits further back.
-  const camPos: [number, number, number] = domain === "sea" ? [62, 14, 16] : [30, 8, 8];
+  // Elevated broadside view looking DOWN at the battlefield (keeps the bright
+  // sky out of frame and frames the units). Sea is bigger → further back.
+  const camPos: [number, number, number] = domain === "sea" ? [50, 38, 40] : [24, 19, 18];
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
