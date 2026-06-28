@@ -39,6 +39,8 @@ export interface UnitVisual {
   autoOrient?: boolean;
   /** render both faces (needed for thin one-sided surfaces like the carrier deck) */
   doubleSide?: boolean;
+  /** uniformly darken the model's textures (0..1, multiplies base color) */
+  dim?: number;
 }
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
@@ -47,7 +49,7 @@ export const UNIT_VISUAL: Record<string, UnitVisual> = {
   cruiser: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI },
   destroyer: { shape: "warship", size: 10, model: "warship", target: 11, yaw: Math.PI },
   transport: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI },
-  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, yaw: Math.PI, doubleSide: true },
+  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, yaw: Math.PI, doubleSide: true, dim: 0.6 },
   submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414", yaw: Math.PI },
   fighter: { shape: "plane", size: 6, air: true, model: "fighter", target: 6.5, autoOrient: false, yaw: 0 },
   bomber: { shape: "plane", size: 8, air: true, model: "bomber", target: 9, autoOrient: false, yaw: 0 },

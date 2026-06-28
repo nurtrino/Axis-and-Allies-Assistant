@@ -16,6 +16,7 @@ import { Water } from "three/addons/objects/Water.js";
 import { Sky } from "three/addons/objects/Sky.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
+import { playSound } from "@/lib/sfx";
 import {
   formation,
   visualFor,
@@ -28,18 +29,6 @@ import {
 } from "@/lib/battlescene";
 
 const modelUrl = (file: string) => `/assets/sim/models/${file}.glb`;
-
-/** Play a one-shot fire sound (overlapping plays are fine — fresh element each time). */
-function playFireSound(name: string) {
-  if (typeof Audio === "undefined") return;
-  try {
-    const a = new Audio(`/sounds/${name}.mp3`);
-    a.volume = 0.45;
-    void a.play().catch(() => {});
-  } catch {
-    /* autoplay/codec issues are non-fatal */
-  }
-}
 
 const ATTACKER_COLOR = "#c0392b";
 const DEFENDER_COLOR = "#3a6ea5";
@@ -169,7 +158,8 @@ function Ground() {
   }, []);
   return (
     <mesh geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
-      <meshStandardMaterial map={tex} roughness={1} />
+      {/* darkened + desaturated so the battlefield reads grim, not lush */}
+      <meshStandardMaterial map={tex} roughness={1} color="#5f6749" />
     </mesh>
   );
 }
@@ -366,6 +356,7 @@ function ModelUnit({
   yaw = 0,
   autoOrient = true,
   doubleSide = false,
+  dim,
   onHeight,
 }: {
   file: string;
@@ -374,6 +365,7 @@ function ModelUnit({
   yaw?: number;
   autoOrient?: boolean;
   doubleSide?: boolean;
+  dim?: number;
   onHeight?: (h: number) => void;
 }) {
   const { scene } = useGLTF(modelUrl(file));
@@ -423,6 +415,9 @@ function ModelUnit({
           sm.color = tint;
           sm.metalness = 0.15;
           sm.roughness = 0.85;
+        } else if (dim != null && sm.color) {
+          // darken textured model uniformly (idempotent — safe on shared mats)
+          sm.color.setScalar(dim);
         }
       }
     });
@@ -430,7 +425,7 @@ function ModelUnit({
     g.add(c);
     g.scale.setScalar(s);
     return { obj: g, height: size.y * s };
-  }, [scene, target, color, yaw, autoOrient, doubleSide]);
+  }, [scene, target, color, yaw, autoOrient, doubleSide, dim]);
 
   useEffect(() => {
     onHeight?.(height);
@@ -449,21 +444,26 @@ function HealthBar({
   y,
   width,
   destroyed,
+  health,
 }: {
   side: Side;
   y: number;
   width: number;
   destroyed: boolean;
+  health: number;
 }) {
   const fill = useRef<THREE.Mesh>(null);
   const root = useRef<THREE.Group>(null);
-  const hp = useRef(1);
+  const hp = useRef(health);
   const W = width;
   const H = Math.max(0.18, width * 0.16);
   const color = side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
 
   useFrame((_, dt) => {
-    if (destroyed) hp.current = Math.max(0, hp.current - dt * 1.1);
+    const target = destroyed ? 0 : health;
+    // ease toward the engine's true health so multi-hit units (battleship) drain
+    hp.current += (target - hp.current) * Math.min(1, dt * 6);
+    if (Math.abs(target - hp.current) < 0.005) hp.current = target;
     const m = fill.current;
     if (m) {
       m.scale.x = Math.max(0.0001, hp.current);
@@ -496,10 +496,12 @@ function Unit({
   placement,
   domain,
   destroyed,
+  health,
 }: {
   placement: Placement;
   domain: Domain;
   destroyed: boolean;
+  health: number;
 }) {
   const group = useRef<THREE.Group>(null);
   const vis = visualFor(placement.unit.type);
@@ -508,8 +510,8 @@ function Unit({
   const bobSeed = seedFrom(placement.unit.id);
   const [modelH, setModelH] = useState<number | null>(null);
 
-  const fallbackTop = vis.air ? 1.6 : (vis.target ?? vis.size) * 0.5;
-  const barY = (vis.air ? 0 : (modelH ?? fallbackTop)) + (vis.air ? 1.2 : 0.6);
+  const fallbackTop = vis.air ? 3 : (vis.target ?? vis.size) * 0.5;
+  const barY = (modelH ?? fallbackTop) + (vis.air ? 1.1 : 0.7);
   const barW = Math.min(3.2, Math.max(1.0, (vis.target ?? vis.size) * 0.3));
 
   useFrame(({ clock }, dt) => {
@@ -551,12 +553,13 @@ function Unit({
           yaw={vis.yaw}
           autoOrient={vis.autoOrient}
           doubleSide={vis.doubleSide}
+          dim={vis.dim}
           onHeight={setModelH}
         />
       ) : (
         <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
       )}
-      <HealthBar side={placement.unit.side} y={barY} width={barW} destroyed={destroyed} />
+      <HealthBar side={placement.unit.side} y={barY} width={barW} destroyed={destroyed} health={health} />
       {destroyed && <Burning />}
     </group>
   );
@@ -603,12 +606,14 @@ function Volley({
   salvo,
   domain,
   firingIds,
+  playSounds,
 }: {
   placements: Placement[];
   destroyedIds: Set<string>;
   salvo: number;
   domain: Domain;
   firingIds: string[];
+  playSounds: boolean;
 }) {
   const [beams, setBeams] = useState<Beam[]>([]);
   const age = useRef(0);
@@ -645,8 +650,10 @@ function Volley({
         if (a && b) next.push({ key: `${s.unit.id}-${salvo}`, from: a, to: b });
       }
       // One fire sound per weapon type that actually shot.
-      const sounds = new Set(shooters.map((p) => fireSoundFor(p.unit.type)));
-      sounds.forEach(playFireSound);
+      if (playSounds) {
+        const sounds = new Set(shooters.map((p) => fireSoundFor(p.unit.type)));
+        sounds.forEach((s) => playSound(s));
+      }
       age.current = 0;
       setBeams(next);
       setOpacity(next.length ? 1 : 0);
@@ -698,8 +705,8 @@ function WasdControls({ controlsRef }: { controlsRef: React.RefObject<{ object: 
     const move = new THREE.Vector3();
     if (keys.current.w) move.add(fwd);
     if (keys.current.s) move.sub(fwd);
-    if (keys.current.d) move.add(right);
-    if (keys.current.a) move.sub(right);
+    if (keys.current.a) move.add(right);
+    if (keys.current.d) move.sub(right);
     if (move.lengthSq() === 0) return;
     move.normalize().multiplyScalar(45 * dt);
     c.object.position.add(move);
@@ -719,10 +726,22 @@ export interface BattleSimProps {
   salvo: number;
   /** unit ids that fire this volley (scored a hit) */
   firingIds: string[];
+  /** per-unit health 0..1 by id (drives the bars; omit = full health) */
+  healthById?: Record<string, number>;
+  /** play fire SFX from inside the scene (false when the host plays them) */
+  playSounds?: boolean;
   className?: string;
 }
 
-function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSimProps, "className">) {
+function Scene({
+  units,
+  domain,
+  destroyedIds,
+  salvo,
+  firingIds,
+  healthById,
+  playSounds = true,
+}: Omit<BattleSimProps, "className">) {
   const placements = useMemo(() => {
     const att = formation(units.filter((u) => u.side === "attacker"), "attacker");
     const def = formation(units.filter((u) => u.side === "defender"), "defender");
@@ -759,11 +778,12 @@ function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSim
             placement={p}
             domain={domain}
             destroyed={destroyed.has(p.unit.id)}
+            health={healthById?.[p.unit.id] ?? 1}
           />
         ))}
       </Suspense>
 
-      <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} firingIds={firingIds} />
+      <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} firingIds={firingIds} playSounds={playSounds} />
 
       <OrbitControls
         // @ts-expect-error drei forwards the controls instance to the ref
@@ -783,9 +803,9 @@ function Scene({ units, domain, destroyedIds, salvo, firingIds }: Omit<BattleSim
 // Warm the glTF cache so models pop in fast on first battle.
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
-export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, className }: BattleSimProps) {
-  // Sea battles read better a bit further back; land starts in close.
-  const camPos: [number, number, number] = domain === "sea" ? [0, 24, 92] : [0, 14, 52];
+export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, className }: BattleSimProps) {
+  // Low, close 3/4 view to start (matches the requested framing).
+  const camPos: [number, number, number] = domain === "sea" ? [0, 16, 64] : [0, 13, 50];
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
@@ -795,7 +815,15 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, firingId
         dpr={[1, 2]}
         gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.55 }}
       >
-        <Scene units={units} domain={domain} destroyedIds={destroyedIds} salvo={salvo} firingIds={firingIds} />
+        <Scene
+          units={units}
+          domain={domain}
+          destroyedIds={destroyedIds}
+          salvo={salvo}
+          firingIds={firingIds}
+          healthById={healthById}
+          playSounds={playSounds}
+        />
       </Canvas>
     </div>
   );

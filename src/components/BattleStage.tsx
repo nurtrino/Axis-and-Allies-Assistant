@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { UNITS, UNITS_BY_KEY } from "@/lib/anniversary.config";
 import UnitIcon from "./UnitIcon";
-import { detectDomain, type SimUnit } from "@/lib/battlescene";
+import { detectDomain, fireSoundFor, type SimUnit } from "@/lib/battlescene";
+import { playSound } from "@/lib/sfx";
 import {
   createBattle,
   peek,
@@ -15,7 +16,6 @@ import {
   type Stack,
   type BattleState,
   type BattleEvent,
-  type BattleUnit,
 } from "@/lib/battle";
 
 // 3D battlefield — client-only (WebGL); driven by the engine state below.
@@ -118,62 +118,6 @@ function ForceBuilder({
 }
 
 // A single unit token with a health bar; fades & drops when destroyed.
-function UnitToken({ unit, side }: { unit: BattleUnit; side: Side }) {
-  const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
-  const dead = unit.hp <= 0;
-  return (
-    <div
-      className={`flex flex-col items-center ${dead ? "unit-dead" : ""}`}
-      style={{
-        width: 30,
-        transition: "opacity 0.5s ease, filter 0.5s ease",
-        opacity: dead ? 0.28 : 1,
-        filter: dead ? "grayscale(1)" : "none",
-      }}
-      title={`${UNITS_BY_KEY[unit.key]?.name}${dead ? " (destroyed)" : ""}`}
-    >
-      <span style={{ color: tint, lineHeight: 0 }}>
-        <UnitIcon unitKey={unit.key} size={26} />
-      </span>
-      <div className="flex gap-px mt-0.5" aria-hidden>
-        {Array.from({ length: unit.maxHp }).map((_, i) => (
-          <span
-            key={i}
-            style={{
-              width: unit.maxHp > 1 ? 11 : 18,
-              height: 3,
-              borderRadius: 1,
-              background: i < unit.hp ? "var(--good)" : "rgba(255,255,255,0.16)",
-              transition: "background 0.5s ease",
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// One side's battle line — all units (survivors and wrecks) lined up.
-function BattleLine({ side, units }: { side: Side; units: BattleUnit[] }) {
-  const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
-  const living = units.filter((u) => u.hp > 0).length;
-  return (
-    <div className="panel p-2">
-      <div className="flex items-center justify-center gap-2 mb-1.5">
-        <span className="uppercase tracking-wider text-[11px] font-semibold" style={{ color: tint }}>
-          {side === "attacker" ? "⚔ Attacker" : "🛡 Defender"}
-        </span>
-        <span className="label text-[11px]">{living} standing</span>
-      </div>
-      <div className="flex flex-wrap justify-center gap-2">
-        {units.map((u) => (
-          <UnitToken key={u.uid} unit={u} side={side} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function EventRow({ ev }: { ev: BattleEvent }) {
   return (
     <div className="border-t border-border py-2">
@@ -329,6 +273,15 @@ export default function BattleStage({
     return simUnits.filter((u) => !alive.has(u.id)).map((u) => u.id);
   }, [state, simUnits]);
   const simDomain = useMemo(() => detectDomain(simUnits.map((u) => u.type)), [simUnits]);
+  const simHealth = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (state) {
+      for (const u of [...state.attacker, ...state.defender]) {
+        m[String(u.uid)] = Math.max(0, u.hp) / u.maxHp;
+      }
+    }
+    return m;
+  }, [state]);
 
   // When the battle resolves, automatically record each side's losses to the
   // chosen nations' round entries (once per battle).
@@ -457,11 +410,12 @@ export default function BattleStage({
         window.setTimeout(() => setHitFlash(null), 1500);
       }
       // Only units that scored a hit fire a shot in the 3D view.
-      const hitters = step.dice
-        .filter((d, i) => (values[i] ?? 9) <= d.hitOn)
-        .map((d) => String(d.uid));
-      setFiringIds(hitters);
+      const hitDice = step.dice.filter((d, i) => (values[i] ?? 9) <= d.hitOn);
+      setFiringIds(hitDice.map((d) => String(d.uid)));
       setSalvo((s) => s + 1);
+      // Fire SFX here (deterministic — plays even on the battle-ending hit).
+      const sounds = new Set(hitDice.map((d) => fireSoundFor(d.key)));
+      sounds.forEach((s) => playSound(s));
       setState(resolveRoll(state, values));
     } finally {
       setRolling(false);
@@ -501,37 +455,38 @@ export default function BattleStage({
         </div>
       )}
 
-      {/* 3D battlefield (battle mode) — driven by the engine: only units that
-          hit fire, casualties sink/burn, real units on real terrain. */}
-      {mode === "battle" && simUnits.length > 0 && (
+      {/* Battle view: 3D battlefield + dice side by side so both stay visible. */}
+      <div className="flex flex-col lg:flex-row gap-4 lg:items-start">
+        {/* 3D battlefield (battle mode) — driven by the engine: only units that
+            hit fire, casualties sink/burn, real units on real terrain. */}
+        {mode === "battle" && simUnits.length > 0 && (
+          <div
+            className="rounded-lg overflow-hidden flex-1"
+            style={{ minWidth: 0, height: "min(62vh, 540px)", border: "1px solid var(--border)" }}
+          >
+            <BattleSim
+              units={simUnits}
+              domain={simDomain}
+              destroyedIds={simDestroyed}
+              salvo={salvo}
+              firingIds={firingIds}
+              healthById={simHealth}
+              playSounds={false}
+            />
+          </div>
+        )}
+
+        {/* Battle theater — the dice surface fills the box; the dice-box canvas
+            is ALWAYS mounted so it never detaches. */}
         <div
-          className="rounded-lg overflow-hidden mx-auto"
-          style={{ width: "100%", height: "min(60vh, 520px)", border: "1px solid var(--border)" }}
+          className="relative rounded-lg overflow-hidden mx-auto lg:mx-0 shrink-0"
+          style={{
+            width: "min(440px, 100%)",
+            height: 400,
+            background: "radial-gradient(120% 120% at 50% 0%, #344a34 0%, #1d2a1d 50%, #121a12 100%)",
+            border: "1px solid var(--border)",
+          }}
         >
-          <BattleSim
-            units={simUnits}
-            domain={simDomain}
-            destroyedIds={simDestroyed}
-            salvo={salvo}
-            firingIds={firingIds}
-          />
-        </div>
-      )}
-
-      {/* Attacker line (battle mode) */}
-      {mode === "battle" && state && <BattleLine side="attacker" units={state.attacker} />}
-
-      {/* Battle theater — the dice surface fills the whole box (no inner frame),
-          and the dice-box canvas is ALWAYS mounted so it never detaches. */}
-      <div
-        className="relative rounded-lg overflow-hidden mx-auto"
-        style={{
-          width: "min(440px, 100%)",
-          height: 400,
-          background: "radial-gradient(120% 120% at 50% 0%, #344a34 0%, #1d2a1d 50%, #121a12 100%)",
-          border: "1px solid var(--border)",
-        }}
-      >
         {/* dice canvas fills the battlefield */}
         <div id="battle-dice-stage" className="absolute inset-0" />
         <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 70px rgba(0,0,0,0.5)" }} />
@@ -583,10 +538,8 @@ export default function BattleStage({
             ))}
           </div>
         )}
+        </div>
       </div>
-
-      {/* Defender line (battle mode) */}
-      {mode === "battle" && state && <BattleLine side="defender" units={state.defender} />}
 
       {/* Setup controls */}
       {mode === "setup" && (
