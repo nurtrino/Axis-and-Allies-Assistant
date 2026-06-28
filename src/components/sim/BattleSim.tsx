@@ -111,9 +111,9 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
       textureHeight: 512,
       waterNormals: n,
       sunDirection: sun.clone().normalize(),
-      sunColor: 0xffffff,
-      waterColor: 0x183a55,
-      distortionScale: 2.6,
+      sunColor: 0xaab6c2, // dimmer glint
+      waterColor: 0x173649,
+      distortionScale: 3.6, // choppier surface → less mirror-like reflection
       fog: false,
     });
     // smaller, finer wave pattern (scale the normal map tiling up)
@@ -527,6 +527,7 @@ function Unit({
     if (vis.air) {
       y = 6 + Math.sin(t * 1.5 + bobSeed) * 0.3;
     }
+    y += vis.yOffset ?? 0; // e.g. sit the submarine lower in the water
     if (destroyed) {
       // slow sink/fall so the death reads (not an instant disappear)
       sinkRef.current = Math.min(sinkRef.current + dt * 0.17, 1);
@@ -805,9 +806,9 @@ function Scene({
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, className }: BattleSimProps) {
-  // Sea: low broadside view looking across the line so both fleets face each
-  // other horizontally. Land: low head-on view.
-  const camPos: [number, number, number] = domain === "sea" ? [62, 14, 16] : [0, 13, 50];
+  // Low broadside view (looking across the line) for both — units face each
+  // other horizontally. Sea is bigger so the camera sits further back.
+  const camPos: [number, number, number] = domain === "sea" ? [62, 14, 16] : [30, 8, 8];
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
