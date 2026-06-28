@@ -49,8 +49,8 @@ async function getDiceBox(): Promise<any> {
   return boxPromise;
 }
 
-const ATTACKER_TINT = "#e0795f";
-const DEFENDER_TINT = "#5fbf8c";
+const ATTACKER_TINT = "#6ea0d6"; // blue — attacker
+const DEFENDER_TINT = "#e0795f"; // red — defender
 
 // Units selectable when building a force (everything that can be in a battle;
 // the industrial complex never fights, so it's excluded).

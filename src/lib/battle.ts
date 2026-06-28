@@ -115,8 +115,8 @@ export interface BattleState {
   startCost: { attacker: number; defender: number };
 }
 
-const ATTACKER_COLOR = "#b23b2e"; // warm red
-const DEFENDER_COLOR = "#2f6f4f"; // green
+const ATTACKER_COLOR = "#3a6ea5"; // blue — attacker
+const DEFENDER_COLOR = "#c0392b"; // red — defender
 const NEUTRAL_COLOR = "#8a6d2f"; // gold (AA / bombardment)
 
 let UID = 1;

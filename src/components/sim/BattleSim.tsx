@@ -30,8 +30,8 @@ import {
 
 const modelUrl = (file: string) => `/assets/sim/models/${file}.glb`;
 
-const ATTACKER_COLOR = "#c0392b";
-const DEFENDER_COLOR = "#3a6ea5";
+const ATTACKER_COLOR = "#3a6ea5"; // blue
+const DEFENDER_COLOR = "#c0392b"; // red
 
 /** Deterministic per-unit seed (so bob/flicker vary without impure Math.random). */
 function seedFrom(id: string): number {
