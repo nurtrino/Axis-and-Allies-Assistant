@@ -43,17 +43,17 @@ export interface UnitVisual {
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
   // Every surface ship uses the same warship hull; carrier & sub are distinct.
-  battleship: { shape: "warship", size: 15, model: "warship", target: 16 },
-  cruiser: { shape: "warship", size: 11, model: "warship", target: 12 },
-  destroyer: { shape: "warship", size: 10, model: "warship", target: 11 },
-  transport: { shape: "warship", size: 11, model: "warship", target: 12 },
-  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22 },
+  battleship: { shape: "warship", size: 15, model: "warship", target: 16, yaw: Math.PI },
+  cruiser: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI },
+  destroyer: { shape: "warship", size: 10, model: "warship", target: 11, yaw: Math.PI },
+  transport: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI },
+  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, yaw: Math.PI },
   submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414", yaw: Math.PI },
-  fighter: { shape: "plane", size: 4.5, air: true, model: "fighter", target: 5, autoOrient: false, yaw: 0 },
-  bomber: { shape: "plane", size: 6, air: true, model: "bomber", target: 7, autoOrient: false, yaw: 0 },
+  fighter: { shape: "plane", size: 6, air: true, model: "fighter", target: 6.5, autoOrient: false, yaw: 0 },
+  bomber: { shape: "plane", size: 8, air: true, model: "bomber", target: 9, autoOrient: false, yaw: 0 },
   infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4, yaw: Math.PI * 1.5 },
   artillery: { shape: "artillery", size: 7, model: "artillery", target: 8, yaw: Math.PI / 2 },
-  tank: { shape: "tank", size: 6, model: "tank", target: 6.5, color: "#3b4030" },
+  tank: { shape: "tank", size: 8, model: "tank", target: 8 },
   aaGun: { shape: "artillery", size: 7, model: "artillery", target: 7, yaw: Math.PI / 2 },
   factory: { shape: "structure", size: 4 },
 };
