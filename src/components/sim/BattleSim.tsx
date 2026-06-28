@@ -145,7 +145,7 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
 
 /** Realistic grass terrain: tiled grass texture over gently rolling hills. */
 function Ground() {
-  const grass = useLoader(THREE.TextureLoader, "/assets/sim/grass.jpg");
+  const grass = useLoader(THREE.TextureLoader, "/assets/sim/dead-grass.jpg");
   const tex = useMemo(() => {
     const t = grass.clone();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -170,9 +170,130 @@ function Ground() {
   }, []);
   return (
     <mesh geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
-      {/* darkened + desaturated so the battlefield reads grim, not lush */}
-      <meshStandardMaterial map={tex} roughness={1} color="#5f6749" />
+      {/* dead-grass texture is already drab — only a slight neutral dim so it
+          sits into the overcast lighting rather than being blown out */}
+      <meshStandardMaterial map={tex} roughness={1} color="#a89f8c" />
     </mesh>
+  );
+}
+
+// ─────────────────────────────── Foliage ─────────────────────────────────────
+
+/** Foliage model basenames scattered across the land battlefield. */
+const FOLIAGE_FILES = ["tree1", "tree2", "bush"] as const;
+
+/** mulberry32 PRNG — deterministic scatter without impure Math.random at render. */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+interface FoliageInstance {
+  file: string;
+  x: number;
+  z: number;
+  yaw: number;
+  target: number; // desired largest dimension in world units
+}
+
+/**
+ * One scattered foliage model: cloned per instance, auto-scaled so its largest
+ * dimension is `target`, grounded to y=0, double-sided, and lightly dimmed to
+ * match the grim field. Dead trees are OPAQUE geometry; the bush ships BLEND
+ * leaf cards which we turn into clean alpha-tested cutouts (write depth, no
+ * sort artifacts), dropping its billboard-LOD card so it doesn't render as flat
+ * crossed planes over the real mesh. All material edits are absolute sets, so
+ * they're idempotent and safe on the materials shared across clones.
+ */
+function FoliagePiece({ file, x, z, yaw, target }: FoliageInstance) {
+  const { scene } = useGLTF(modelUrl(file));
+  const obj = useMemo(() => {
+    const c = cloneSkinned(scene);
+    c.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(c);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const largest = Math.max(size.x, size.y, size.z) || 1;
+    const s = target / largest;
+    c.position.set(
+      c.position.x - center.x,
+      c.position.y - box.min.y,
+      c.position.z - center.z,
+    );
+    c.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      // Drop the billboard-LOD card — a flat crossed-plane stand-in that
+      // overlaps the real geometry up close.
+      if (mats.some((mat) => /billboard/i.test((mat as THREE.Material).name))) {
+        m.visible = false;
+        return;
+      }
+      m.castShadow = true;
+      m.receiveShadow = true;
+      for (const mat of mats) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        // BLEND leaf cards → alpha-tested cutout: keeps the cut-out silhouette
+        // but writes depth and needs no back-to-front sorting.
+        if (sm.transparent || sm.alphaTest > 0) {
+          sm.alphaTest = sm.alphaTest > 0 ? sm.alphaTest : 0.5;
+          sm.transparent = false;
+          sm.depthWrite = true;
+        }
+        sm.side = THREE.DoubleSide; // foliage is modelled one-sided
+        if (sm.color) sm.color.setScalar(0.82); // idempotent dim
+      }
+    });
+    const g = new THREE.Group();
+    g.add(c);
+    g.scale.setScalar(s);
+    return g;
+  }, [scene, target]);
+
+  return <primitive object={obj} position={[x, 0, z]} rotation-y={yaw} />;
+}
+
+/**
+ * Scatter trees and bushes across the land battlefield with a deterministic
+ * seeded RNG. Keeps the centre clear so foliage never overlaps the armies, and
+ * mixes the two tree models with the bush (~60/40 tree/bush) at varied scale.
+ */
+function Foliage() {
+  const items = useMemo<FoliageInstance[]>(() => {
+    const rng = mulberry32(0x5eedface);
+    const out: FoliageInstance[] = [];
+    const FIELD = 120; // scatter radius across x/z
+    const CLEAR_X = 34; // keep the formation box clear of foliage
+    const CLEAR_Z = 30;
+    let guard = 0;
+    while (out.length < 30 && guard < 400) {
+      guard++;
+      const x = (rng() * 2 - 1) * FIELD;
+      const z = (rng() * 2 - 1) * FIELD;
+      const yaw = rng() * Math.PI * 2;
+      const kind = rng();
+      const jitter = 0.8 + rng() * 0.6; // 0.8..1.4
+      if (Math.abs(x) < CLEAR_X && Math.abs(z) < CLEAR_Z) continue;
+      const isBush = kind > 0.6; // ~40% bushes
+      const file = isBush ? "bush" : rng() > 0.5 ? "tree1" : "tree2";
+      const base = isBush ? 3.4 : 13; // bushes low, trees tower over the units
+      out.push({ file, x, z, yaw, target: base * jitter });
+    }
+    return out;
+  }, []);
+
+  return (
+    <group>
+      {items.map((it, i) => (
+        <FoliagePiece key={i} file={it.file} x={it.x} z={it.z} yaw={it.yaw} target={it.target} />
+      ))}
+    </group>
   );
 }
 
@@ -832,7 +953,14 @@ function Scene({
       <ambientLight intensity={0.5} />
 
       <Suspense fallback={null}>
-        {domain === "sea" ? <Ocean sun={sun} /> : <Ground />}
+        {domain === "sea" ? (
+          <Ocean sun={sun} />
+        ) : (
+          <>
+            <Ground />
+            <Foliage />
+          </>
+        )}
 
         {placements.map((p) => (
           <Unit
@@ -869,6 +997,7 @@ function Scene({
 
 // Warm the glTF cache so models pop in fast on first battle.
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
+for (const f of FOLIAGE_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, attackerName, defenderName, className }: BattleSimProps) {
   // Broadside view: elevated enough to frame the units, low enough that the
