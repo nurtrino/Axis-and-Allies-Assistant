@@ -452,9 +452,12 @@ export default function BattleStage({
       const hitDice = step.dice.filter((d, i) => (values[i] ?? 9) <= d.hitOn);
       setFiringIds(hitDice.map((d) => String(d.uid)));
       setSalvo((s) => s + 1);
-      // Fire SFX here (deterministic — plays even on the battle-ending hit).
-      const sounds = new Set(hitDice.map((d) => fireSoundFor(d.key)));
-      sounds.forEach((s) => playSound(s));
+      // Fire SFX, staggered to match the rippling beams (cap so a big volley
+      // doesn't turn into noise). Deterministic — plays even on the final hit.
+      hitDice.slice(0, 14).forEach((d, i) => {
+        const snd = fireSoundFor(d.key);
+        window.setTimeout(() => playSound(snd, 0.4), i * 90);
+      });
       setState(resolveRoll(state, values));
     } finally {
       setRolling(false);
@@ -511,6 +514,8 @@ export default function BattleStage({
               firingIds={firingIds}
               healthById={simHealth}
               playSounds={false}
+              attackerName={attackerName}
+              defenderName={defenderName}
             />
           </div>
         )}

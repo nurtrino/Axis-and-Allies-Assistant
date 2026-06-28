@@ -10,7 +10,7 @@
  */
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
-import { OrbitControls, useGLTF, Billboard } from "@react-three/drei";
+import { OrbitControls, useGLTF, Billboard, Clouds, Cloud } from "@react-three/drei";
 import * as THREE from "three";
 import { Water } from "three/addons/objects/Water.js";
 import { Sky } from "three/addons/objects/Sky.js";
@@ -84,20 +84,31 @@ function SceneEnvironment() {
   return null;
 }
 
-/** Procedural atmospheric sky (no texture needed). */
+/** Procedural atmospheric sky (hazy / overcast). */
 function SkyDome({ sun }: { sun: THREE.Vector3 }) {
   const sky = useMemo(() => {
     const s = new Sky();
     s.scale.setScalar(15000);
     const u = s.material.uniforms;
-    u.turbidity.value = 8;
-    u.rayleigh.value = 1.8;
-    u.mieCoefficient.value = 0.004;
-    u.mieDirectionalG.value = 0.85;
+    u.turbidity.value = 12; // hazier → greyer, overcast feel
+    u.rayleigh.value = 1.1;
+    u.mieCoefficient.value = 0.006;
+    u.mieDirectionalG.value = 0.8;
     u.sunPosition.value.copy(sun);
     return s;
   }, [sun]);
   return <primitive object={sky} />;
+}
+
+/** A scattered layer of clouds for an overcast day. */
+function CloudLayer() {
+  return (
+    <Clouds limit={300} range={120}>
+      <Cloud seed={1} segments={28} bounds={[140, 8, 120]} volume={26} position={[10, 70, -50]} opacity={0.55} color="#c4ccd4" speed={0.15} />
+      <Cloud seed={7} segments={22} bounds={[120, 6, 90]} volume={20} position={[-70, 86, 20]} opacity={0.45} color="#b8c0c9" speed={0.1} />
+      <Cloud seed={13} segments={20} bounds={[110, 6, 90]} volume={18} position={[80, 96, 60]} opacity={0.4} color="#cdd4db" speed={0.12} />
+    </Clouds>
+  );
 }
 
 /** Realistic ocean using three's Water shader (reflections + animated normals). */
@@ -112,9 +123,9 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
       textureHeight: 512,
       waterNormals: n,
       sunDirection: sun.clone().normalize(),
-      sunColor: 0x8d99a5, // dimmer glint
-      waterColor: 0x0d2030, // darker, deeper sea
-      distortionScale: 2.6, // calmer surface
+      sunColor: 0x5b636d, // overcast — minimal glint, low reflection
+      waterColor: 0x0c1b27, // dark, deep, matte sea
+      distortionScale: 2.4, // calmer surface
       fog: false,
     });
     // smaller, finer wave pattern (scale the normal map tiling up)
@@ -319,26 +330,25 @@ function UnitMesh({ shape, color }: { shape: string; color: string }) {
 }
 
 function Burning() {
-  const ref = useRef<THREE.PointLight>(null);
+  // No dynamic light here on purpose: adding a pointLight per destroyed unit
+  // forces Three.js to recompile every material (a visible freeze when several
+  // units die at once). A bright emissive flame + smoke reads fine without it.
   const flame = useRef<THREE.Mesh>(null);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
-    // layered sines fake a flicker without an impure RNG
     const f = 0.6 + Math.sin(t * 22) * 0.2 + Math.sin(t * 37.3) * 0.12;
-    if (ref.current) ref.current.intensity = 6 * f;
     if (flame.current) flame.current.scale.setScalar(0.8 + f * 0.5);
   });
   return (
     <group>
-      <pointLight ref={ref} color="#ff7a18" distance={14} position={[0, 1.5, 0]} />
       <mesh ref={flame} position={[0, 1.1, 0]}>
-        <coneGeometry args={[0.5, 1.6, 8]} />
-        <meshBasicMaterial color="#ff8a1e" transparent opacity={0.85} />
+        <coneGeometry args={[0.5, 1.8, 8]} />
+        <meshBasicMaterial color="#ff8a1e" transparent opacity={0.95} toneMapped={false} />
       </mesh>
       {[0, 1, 2].map((i) => (
         <mesh key={i} position={[0, 2 + i * 0.9, 0]}>
           <sphereGeometry args={[0.5 + i * 0.25, 8, 8]} />
-          <meshBasicMaterial color="#3a3a3a" transparent opacity={0.35 - i * 0.08} />
+          <meshBasicMaterial color="#2e2e2e" transparent opacity={0.4 - i * 0.1} />
         </mesh>
       ))}
     </group>
@@ -695,6 +705,31 @@ function Volley({
   );
 }
 
+/** Cinematic opening: sweep across the field, then settle into the battle view. */
+function IntroCamera({ settle, onDone }: { settle: [number, number, number]; onDone: () => void }) {
+  const camera = useThree((s) => s.camera);
+  const start = useMemo(
+    () => new THREE.Vector3(-settle[0] * 0.55, settle[1] * 1.7 + 14, settle[2] * 1.2 + 26),
+    [settle],
+  );
+  const settleVec = useMemo(() => new THREE.Vector3(...settle), [settle]);
+  const t0 = useRef<number | null>(null);
+  const fired = useRef(false);
+  const DUR = 4.5;
+  useFrame(({ clock }) => {
+    if (t0.current === null) t0.current = clock.elapsedTime;
+    const raw = Math.min(1, (clock.elapsedTime - t0.current) / DUR);
+    const e = raw < 0.5 ? 2 * raw * raw : 1 - Math.pow(-2 * raw + 2, 2) / 2; // easeInOut
+    camera.position.lerpVectors(start, settleVec, e);
+    camera.lookAt(0, (1 - e) * 6, 0);
+    if (raw >= 1 && !fired.current) {
+      fired.current = true;
+      onDone();
+    }
+  });
+  return null;
+}
+
 /** WASD panning that rides on top of OrbitControls (moves camera + target). */
 function WasdControls({ controlsRef }: { controlsRef: React.RefObject<{ object: THREE.Camera; target: THREE.Vector3; update: () => void } | null> }) {
   const keys = useRef<Record<string, boolean>>({});
@@ -750,6 +785,9 @@ export interface BattleSimProps {
   healthById?: Record<string, number>;
   /** play fire SFX from inside the scene (false when the host plays them) */
   playSounds?: boolean;
+  /** team names for the cinematic intro title card */
+  attackerName?: string;
+  defenderName?: string;
   className?: string;
 }
 
@@ -761,7 +799,8 @@ function Scene({
   firingIds,
   healthById,
   playSounds = true,
-}: Omit<BattleSimProps, "className">) {
+  camPos,
+}: Omit<BattleSimProps, "className"> & { camPos: [number, number, number] }) {
   const placements = useMemo(() => {
     const att = formation(units.filter((u) => u.side === "attacker"), "attacker");
     const def = formation(units.filter((u) => u.side === "defender"), "defender");
@@ -770,16 +809,19 @@ function Scene({
   const destroyed = useMemo(() => new Set(destroyedIds), [destroyedIds]);
   const sun = useSunDirection();
   const controlsRef = useRef<{ object: THREE.Camera; target: THREE.Vector3; update: () => void } | null>(null);
+  const [introDone, setIntroDone] = useState(false);
 
   return (
     <>
       <SceneEnvironment />
       <SkyDome sun={sun} />
-      <hemisphereLight args={["#cfe2ff", domain === "sea" ? "#13334a" : "#33401f", 0.5]} />
+      <CloudLayer />
+      {/* Softer, overcast lighting */}
+      <hemisphereLight args={["#c4cdd6", domain === "sea" ? "#1a2e3c" : "#2e3624", 0.7]} />
       <directionalLight
         position={[sun.x * 120, sun.y * 120, sun.z * 120]}
-        intensity={2.4}
-        color="#fff4e0"
+        intensity={1.5}
+        color="#eef0f2"
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-60}
@@ -787,7 +829,7 @@ function Scene({
         shadow-camera-top={60}
         shadow-camera-bottom={-60}
       />
-      <ambientLight intensity={0.3} />
+      <ambientLight intensity={0.5} />
 
       <Suspense fallback={null}>
         {domain === "sea" ? <Ocean sun={sun} /> : <Ground />}
@@ -805,17 +847,22 @@ function Scene({
 
       <Volley placements={placements} destroyedIds={destroyed} salvo={salvo} domain={domain} firingIds={firingIds} playSounds={playSounds} />
 
-      <OrbitControls
-        // @ts-expect-error drei forwards the controls instance to the ref
-        ref={controlsRef}
-        makeDefault
-        enablePan
-        maxPolarAngle={Math.PI / 2.08}
-        minDistance={6}
-        maxDistance={260}
-        target={[0, 0, 0]}
-      />
-      <WasdControls controlsRef={controlsRef} />
+      {!introDone && <IntroCamera settle={camPos} onDone={() => setIntroDone(true)} />}
+      {introDone && (
+        <>
+          <OrbitControls
+            // @ts-expect-error drei forwards the controls instance to the ref
+            ref={controlsRef}
+            makeDefault
+            enablePan
+            maxPolarAngle={Math.PI / 2.08}
+            minDistance={6}
+            maxDistance={260}
+            target={[0, 0, 0]}
+          />
+          <WasdControls controlsRef={controlsRef} />
+        </>
+      )}
     </>
   );
 }
@@ -823,12 +870,12 @@ function Scene({
 // Warm the glTF cache so models pop in fast on first battle.
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
-export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, className }: BattleSimProps) {
+export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, attackerName, defenderName, className }: BattleSimProps) {
   // Broadside view: elevated enough to frame the units, low enough that the
-  // (now bluer) sky still shows above the horizon. Sea is bigger → further back.
+  // overcast sky still shows above the horizon. Sea is bigger → further back.
   const camPos: [number, number, number] = domain === "sea" ? [56, 22, 40] : [24, 16, 18];
   return (
-    <div className={className} style={{ width: "100%", height: "100%" }}>
+    <div className={className} style={{ width: "100%", height: "100%", position: "relative" }}>
       <Canvas
         key={domain}
         shadows
@@ -844,8 +891,26 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, firingId
           firingIds={firingIds}
           healthById={healthById}
           playSounds={playSounds}
+          camPos={camPos}
         />
       </Canvas>
+
+      {/* Cinematic title card during the opening pan */}
+      {(attackerName || defenderName) && (
+        <div className="battle-intro-card" aria-hidden>
+          <div className="flex items-center gap-4 sm:gap-8 text-center">
+            <span className="text-2xl sm:text-4xl font-extrabold" style={{ color: ATTACKER_COLOR }}>
+              {attackerName ?? "Attacker"}
+            </span>
+            <span className="text-lg sm:text-2xl font-semibold" style={{ color: "#cdd4db" }}>
+              vs
+            </span>
+            <span className="text-2xl sm:text-4xl font-extrabold" style={{ color: DEFENDER_COLOR }}>
+              {defenderName ?? "Defender"}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
