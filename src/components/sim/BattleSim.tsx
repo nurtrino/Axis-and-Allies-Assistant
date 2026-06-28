@@ -528,7 +528,8 @@ function Unit({
       y = 6 + Math.sin(t * 1.5 + bobSeed) * 0.3;
     }
     if (destroyed) {
-      sinkRef.current = Math.min(sinkRef.current + dt * 0.5, 1);
+      // slow sink/fall so the death reads (not an instant disappear)
+      sinkRef.current = Math.min(sinkRef.current + dt * 0.17, 1);
       const s = sinkRef.current;
       if (domain === "sea" && !vis.air) {
         y -= s * 3; // sink beneath the waves
@@ -804,8 +805,9 @@ function Scene({
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, className }: BattleSimProps) {
-  // Low, close 3/4 view to start (matches the requested framing).
-  const camPos: [number, number, number] = domain === "sea" ? [0, 16, 64] : [0, 13, 50];
+  // Sea: low broadside view looking across the line so both fleets face each
+  // other horizontally. Land: low head-on view.
+  const camPos: [number, number, number] = domain === "sea" ? [62, 14, 16] : [0, 13, 50];
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
       <Canvas
