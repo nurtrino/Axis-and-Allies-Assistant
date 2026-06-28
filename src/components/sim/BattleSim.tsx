@@ -574,9 +574,18 @@ interface Beam {
   key: string;
   from: THREE.Vector3;
   to: THREE.Vector3;
+  delay: number; // seconds after the volley starts before this shot fires
 }
 
-function BeamMesh({ beam, opacity }: { beam: Beam; opacity: number }) {
+const BEAM_STAGGER = 0.09; // gap between successive shots
+const BEAM_LIFE = 0.4; // how long each shot stays visible
+
+/** Self-animating tracer + muzzle flash; appears at `beam.delay` after start. */
+function BeamMesh({ beam, startRef }: { beam: Beam; startRef: React.RefObject<number> }) {
+  const grp = useRef<THREE.Group>(null);
+  const beamMat = useRef<THREE.MeshBasicMaterial>(null);
+  const flash = useRef<THREE.Mesh>(null);
+  const flashMat = useRef<THREE.MeshBasicMaterial>(null);
   const { pos, quat, len } = useMemo(() => {
     const dir = new THREE.Vector3().subVectors(beam.to, beam.from);
     const length = dir.length();
@@ -588,16 +597,24 @@ function BeamMesh({ beam, opacity }: { beam: Beam; opacity: number }) {
     return { pos: mid, quat: q, len: length };
   }, [beam]);
 
+  useFrame(({ clock }) => {
+    const age = clock.elapsedTime - (startRef.current ?? 0) - beam.delay;
+    const o = age < 0 ? 0 : Math.max(0, 1 - age / BEAM_LIFE);
+    if (grp.current) grp.current.visible = o > 0.02;
+    if (beamMat.current) beamMat.current.opacity = o;
+    if (flashMat.current) flashMat.current.opacity = o;
+    if (flash.current) flash.current.scale.setScalar(0.12 + o * 0.5);
+  });
+
   return (
-    <group>
+    <group ref={grp} visible={false}>
       <mesh position={pos} quaternion={quat}>
         <cylinderGeometry args={[0.05, 0.05, len, 6]} />
-        <meshBasicMaterial color="#ffd24a" transparent opacity={opacity} />
+        <meshBasicMaterial ref={beamMat} color="#ffd24a" transparent opacity={0} toneMapped={false} />
       </mesh>
-      {/* muzzle flash at the shooter */}
-      <mesh position={beam.from}>
-        <sphereGeometry args={[0.4 * opacity + 0.1, 8, 8]} />
-        <meshBasicMaterial color="#fff2b0" transparent opacity={opacity} />
+      <mesh ref={flash} position={beam.from}>
+        <sphereGeometry args={[1, 8, 8]} />
+        <meshBasicMaterial ref={flashMat} color="#fff2b0" transparent opacity={0} toneMapped={false} />
       </mesh>
     </group>
   );
@@ -619,9 +636,9 @@ function Volley({
   playSounds: boolean;
 }) {
   const [beams, setBeams] = useState<Beam[]>([]);
-  const age = useRef(0);
+  const startRef = useRef(0);
+  const durRef = useRef(0);
   const lastSalvo = useRef(0);
-  const [opacity, setOpacity] = useState(0);
 
   const posOf = useMemo(() => {
     const m = new Map<string, THREE.Vector3>();
@@ -632,47 +649,47 @@ function Volley({
     return m;
   }, [placements, domain]);
 
-  // Edge-trigger a volley when `salvo` changes (done in the frame loop so we
-  // never setState during an effect/render); then fade the beams out.
-  useFrame((_, dt) => {
+  // Edge-trigger a volley when `salvo` changes; shots are staggered so they
+  // ripple across the line instead of all firing at once.
+  useFrame(({ clock }) => {
     if (salvo !== lastSalvo.current) {
       lastSalvo.current = salvo;
       const firing = new Set(firingIds);
       const live = placements.filter((p) => !destroyedIds.has(p.unit.id));
       const att = live.filter((p) => p.unit.side === "attacker");
       const def = live.filter((p) => p.unit.side === "defender");
-      // Only units that scored a hit this round fire a shot.
       const shooters = live.filter((p) => firing.has(p.unit.id));
       const next: Beam[] = [];
+      let i = 0;
       for (const s of shooters) {
         const enemies = s.unit.side === "attacker" ? def : att;
         if (!enemies.length) continue;
         const target = enemies[Math.floor(Math.random() * enemies.length)];
         const a = posOf.get(s.unit.id);
         const b = posOf.get(target.unit.id);
-        if (a && b) next.push({ key: `${s.unit.id}-${salvo}`, from: a, to: b });
+        if (a && b) {
+          next.push({ key: `${s.unit.id}-${salvo}`, from: a, to: b, delay: i * BEAM_STAGGER });
+          i++;
+        }
       }
-      // One fire sound per weapon type that actually shot.
       if (playSounds) {
         const sounds = new Set(shooters.map((p) => fireSoundFor(p.unit.type)));
         sounds.forEach((s) => playSound(s));
       }
-      age.current = 0;
+      startRef.current = clock.elapsedTime;
+      durRef.current = Math.max(0, i - 1) * BEAM_STAGGER + BEAM_LIFE + 0.1;
       setBeams(next);
-      setOpacity(next.length ? 1 : 0);
       return;
     }
-    if (!beams.length) return;
-    age.current += dt;
-    const life = 0.55;
-    setOpacity(Math.max(0, 1 - age.current / life));
-    if (age.current > life) setBeams([]);
+    if (beams.length && clock.elapsedTime - startRef.current > durRef.current) {
+      setBeams([]);
+    }
   });
 
   return (
     <>
       {beams.map((b) => (
-        <BeamMesh key={b.key} beam={b} opacity={opacity} />
+        <BeamMesh key={b.key} beam={b} startRef={startRef} />
       ))}
     </>
   );
