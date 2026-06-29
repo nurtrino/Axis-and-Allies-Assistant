@@ -10,11 +10,9 @@
  */
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
-import { OrbitControls, useGLTF, Billboard, Clouds, Cloud } from "@react-three/drei";
+import { OrbitControls, useGLTF, Billboard, Environment } from "@react-three/drei";
 import * as THREE from "three";
 import { Water } from "three/addons/objects/Water.js";
-import { Sky } from "three/addons/objects/Sky.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { playSound } from "@/lib/sfx";
 import {
@@ -49,6 +47,24 @@ function waveHeight(x: number, z: number, t: number): number {
   );
 }
 
+/**
+ * Height of the rolling land at a world (x, z). MUST match the displacement the
+ * `Ground` mesh applies to its plane (after the plane's -90° X rotation, the
+ * plane's local y maps to world -z), so units and foliage sit ON the terrain
+ * instead of floating above its dips.
+ */
+function terrainHeight(x: number, z: number): number {
+  // Long, sweeping rolling hills: low frequencies = long wavelengths, a second
+  // broad wave layered in, and a gentle ramp out from the (flat) centre so the
+  // hills roll on into the distance instead of stopping short.
+  const edge = Math.min(1, (Math.abs(x) + Math.abs(z)) / 110);
+  return (
+    (Math.sin(x * 0.022) * Math.cos(z * 0.02) * 8 +
+      Math.sin(x * 0.011 + z * 0.009) * 4.5) *
+    edge
+  );
+}
+
 // ───────────────────────────── Battlefield ──────────────────────────────────
 
 /** Sun direction shared by the sky dome, water reflection and key light. */
@@ -63,55 +79,28 @@ function useSunDirection() {
 }
 
 /**
- * Image-based lighting from a neutral room environment (procedural, no asset).
- * Without this, the models' metallic materials have nothing to reflect and
- * render near-black — this is what makes the ships/tanks read properly.
+ * Real overcast sky + image-based lighting from a single equirect HDR
+ * (Poly Haven, CC0). It's the skybox for both battles, drives realistic
+ * reflections (the ocean and metal hulls reflect the actual cloudy sky), and —
+ * by replacing the procedural sky + volumetric clouds + room-environment PMREM —
+ * is also markedly cheaper on a weak GPU.
  */
-function SceneEnvironment() {
-  const gl = useThree((s) => s.gl);
-  const scene = useThree((s) => s.scene);
-  useEffect(() => {
-    const pmrem = new THREE.PMREMGenerator(gl);
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    // eslint-disable-next-line react-hooks/immutability
-    scene.environment = env;
-    return () => {
-      scene.environment = null;
-      env.dispose();
-      pmrem.dispose();
-    };
-  }, [gl, scene]);
-  return null;
-}
-
-/** Procedural atmospheric sky (hazy / overcast). */
-function SkyDome({ sun }: { sun: THREE.Vector3 }) {
-  const sky = useMemo(() => {
-    const s = new Sky();
-    s.scale.setScalar(15000);
-    const u = s.material.uniforms;
-    u.turbidity.value = 12; // hazier → greyer, overcast feel
-    u.rayleigh.value = 1.1;
-    u.mieCoefficient.value = 0.006;
-    u.mieDirectionalG.value = 0.8;
-    u.sunPosition.value.copy(sun);
-    return s;
-  }, [sun]);
-  return <primitive object={sky} />;
-}
-
-/** A scattered layer of clouds for an overcast day. */
-function CloudLayer() {
+function SkyEnvironment() {
   return (
-    <Clouds limit={300} range={120}>
-      <Cloud seed={1} segments={28} bounds={[140, 8, 120]} volume={26} position={[10, 70, -50]} opacity={0.55} color="#c4ccd4" speed={0.15} />
-      <Cloud seed={7} segments={22} bounds={[120, 6, 90]} volume={20} position={[-70, 86, 20]} opacity={0.45} color="#b8c0c9" speed={0.1} />
-      <Cloud seed={13} segments={20} bounds={[110, 6, 90]} volume={18} position={[80, 96, 60]} opacity={0.4} color="#cdd4db" speed={0.12} />
-    </Clouds>
+    <Environment
+      files="/assets/sim/sky-overcast.hdr"
+      background
+      environmentIntensity={0.9}
+    />
   );
 }
 
-/** Realistic ocean using three's Water shader (reflections + animated normals). */
+/**
+ * Realistic ocean using three's Water shader (reflections + animated normals).
+ * Note: this re-renders the scene into a reflection target each frame, which is
+ * the heaviest thing in the sim — the reflection target is kept modest (256) to
+ * soften that cost on weak GPUs while keeping the reflective look.
+ */
 function Ocean({ sun }: { sun: THREE.Vector3 }) {
   const normals = useLoader(THREE.TextureLoader, "/assets/sim/waternormals.jpg");
   const water = useMemo(() => {
@@ -119,25 +108,30 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
     n.wrapS = n.wrapT = THREE.RepeatWrapping;
     n.needsUpdate = true;
     const w = new Water(new THREE.PlaneGeometry(4000, 4000), {
-      textureWidth: 512,
-      textureHeight: 512,
+      textureWidth: 256,
+      textureHeight: 256,
       waterNormals: n,
       sunDirection: sun.clone().normalize(),
-      sunColor: 0x5b636d, // overcast — minimal glint, low reflection
-      waterColor: 0x0c1b27, // dark, deep, matte sea
-      distortionScale: 2.4, // calmer surface
+      sunColor: 0x6f767e, // dimmer overcast glint — less mirror-like
+      waterColor: 0x1d4459, // lifted from near-black to a readable steely blue
+      // Low distortion + large, slow waves: the reflected cloudy sky was
+      // shimmering/flickering on a choppy, fast surface. This keeps it glassy.
+      distortionScale: 0.8,
       fog: false,
     });
-    // smaller, finer wave pattern (scale the normal map tiling up)
-    (w.material as THREE.ShaderMaterial).uniforms.size.value = 2.5;
+    // larger, smoother swells (lower tiling) → far less high-frequency flicker
+    (w.material as THREE.ShaderMaterial).uniforms.size.value = 1.2;
+    // tone down the overall sky reflection a touch (1 = full mirror)
+    (w.material as THREE.ShaderMaterial).uniforms.alpha.value = 0.82;
     w.rotation.x = -Math.PI / 2;
     return w;
   }, [normals, sun]);
 
   const ref = useRef<Water>(null);
   useFrame((_, dt) => {
+    // crawl the surface so the reflection drifts gently instead of flickering
     const w = ref.current;
-    if (w) (w.material as THREE.ShaderMaterial).uniforms.time.value += dt * 0.6;
+    if (w) (w.material as THREE.ShaderMaterial).uniforms.time.value += dt * 0.15;
   });
 
   return <primitive ref={ref} object={water} />;
@@ -145,34 +139,33 @@ function Ocean({ sun }: { sun: THREE.Vector3 }) {
 
 /** Realistic grass terrain: tiled grass texture over gently rolling hills. */
 function Ground() {
-  const grass = useLoader(THREE.TextureLoader, "/assets/sim/dead-grass.jpg");
+  const grass = useLoader(THREE.TextureLoader, "/assets/sim/ground-grass.jpg");
   const tex = useMemo(() => {
     const t = grass.clone();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(60, 60);
-    t.anisotropy = 8;
+    t.repeat.set(50, 50); // seamless dead-grass tile — no visible seams
+    t.anisotropy = 16; // keep the texture crisp at the grazing camera angle
     t.colorSpace = THREE.SRGBColorSpace;
     t.needsUpdate = true;
     return t;
   }, [grass]);
   const geo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(800, 800, 80, 80);
+    const g = new THREE.PlaneGeometry(800, 800, 130, 130); // finer grid: less faceting so units don't float over the bigger hills
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const y = pos.getY(i);
-      // rolling hills, flattened where the units stand near the centre
-      const edge = Math.min(1, (Math.abs(x) + Math.abs(y)) / 140);
-      pos.setZ(i, Math.sin(x * 0.05) * Math.cos(y * 0.045) * 5 * edge);
+      // The plane's local y becomes world -z after the -90° X rotation, so feed
+      // (x, -y) to terrainHeight to keep mesh and grounding perfectly in sync.
+      pos.setZ(i, terrainHeight(x, -y));
     }
     g.computeVertexNormals();
     return g;
   }, []);
   return (
     <mesh geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
-      {/* dead-grass texture is already drab — only a slight neutral dim so it
-          sits into the overcast lighting rather than being blown out */}
-      <meshStandardMaterial map={tex} roughness={1} color="#a89f8c" />
+      {/* light, subtle warm tint over the seamless dead-grass — not heavy brown */}
+      <meshStandardMaterial map={tex} roughness={1} color="#c4b793" />
     </mesh>
   );
 }
@@ -235,14 +228,20 @@ function FoliagePiece({ file, x, z, yaw, target }: FoliageInstance) {
         m.visible = false;
         return;
       }
-      m.castShadow = true;
+      // Foliage does NOT cast shadows: it's backdrop, and adding ~dozens of
+      // alpha-tested casters to the shadow pass is what pushes a weak iGPU over
+      // the edge (the battle canvas loses its context and goes black/white).
+      m.castShadow = false;
       m.receiveShadow = true;
+      m.frustumCulled = false; // small bounds were getting culled when far/high
       for (const mat of mats) {
         const sm = mat as THREE.MeshStandardMaterial;
-        // BLEND leaf cards → alpha-tested cutout: keeps the cut-out silhouette
-        // but writes depth and needs no back-to-front sorting.
+        // BLEND/MASK leaf cards → alpha-tested cutout: keeps the cut-out
+        // silhouette, writes depth, no sorting. A LOW threshold (0.25) is key —
+        // with a 0.5 cutoff the mipmapped leaf alpha averages below the test at
+        // distance/high angles and the whole bush vanishes.
         if (sm.transparent || sm.alphaTest > 0) {
-          sm.alphaTest = sm.alphaTest > 0 ? sm.alphaTest : 0.5;
+          sm.alphaTest = 0.25;
           sm.transparent = false;
           sm.depthWrite = true;
         }
@@ -256,7 +255,7 @@ function FoliagePiece({ file, x, z, yaw, target }: FoliageInstance) {
     return g;
   }, [scene, target]);
 
-  return <primitive object={obj} position={[x, 0, z]} rotation-y={yaw} />;
+  return <primitive object={obj} position={[x, terrainHeight(x, z), z]} rotation-y={yaw} />;
 }
 
 /**
@@ -268,21 +267,23 @@ function Foliage() {
   const items = useMemo<FoliageInstance[]>(() => {
     const rng = mulberry32(0x5eedface);
     const out: FoliageInstance[] = [];
-    const FIELD = 120; // scatter radius across x/z
-    const CLEAR_X = 34; // keep the formation box clear of foliage
-    const CLEAR_Z = 30;
+    const FIELD = 105; // spread over the longer hills, still framing the action
+    const CLEAR_X = 28; // keep the formation box clear of foliage
+    const CLEAR_Z = 24;
     let guard = 0;
-    while (out.length < 30 && guard < 400) {
+    // A dense treeline + plenty of bushes. Foliage casts no shadows (see
+    // FoliagePiece), so the extra instances stay affordable on a weak GPU.
+    while (out.length < 40 && guard < 1200) {
       guard++;
       const x = (rng() * 2 - 1) * FIELD;
       const z = (rng() * 2 - 1) * FIELD;
       const yaw = rng() * Math.PI * 2;
       const kind = rng();
-      const jitter = 0.8 + rng() * 0.6; // 0.8..1.4
+      const jitter = 0.9 + rng() * 0.7; // 0.9..1.6
       if (Math.abs(x) < CLEAR_X && Math.abs(z) < CLEAR_Z) continue;
-      const isBush = kind > 0.6; // ~40% bushes
+      const isBush = kind > 0.45; // ~55% bushes
       const file = isBush ? "bush" : rng() > 0.5 ? "tree1" : "tree2";
-      const base = isBush ? 3.4 : 13; // bushes low, trees tower over the units
+      const base = isBush ? 5 : 17; // bigger so they read; trees tower over units
       out.push({ file, x, z, yaw, target: base * jitter });
     }
     return out;
@@ -500,7 +501,7 @@ function ModelUnit({
   dim?: number;
   onHeight?: (h: number) => void;
 }) {
-  const { scene } = useGLTF(modelUrl(file));
+  const { scene, animations } = useGLTF(modelUrl(file));
   const { obj, height } = useMemo(() => {
     const c = cloneSkinned(scene);
     c.updateMatrixWorld(true);
@@ -562,6 +563,26 @@ function ModelUnit({
   useEffect(() => {
     onHeight?.(height);
   }, [height, onHeight]);
+
+  // Play any baked-in skeletal animation (e.g. the soldier's Mixamo idle). The
+  // mixer targets this instance's cloned skeleton, so each unit animates on its
+  // own. No-op for static models (ships, tanks) that ship no clips.
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  useEffect(() => {
+    if (!animations.length) {
+      mixerRef.current = null;
+      return;
+    }
+    const mixer = new THREE.AnimationMixer(obj);
+    mixer.clipAction(animations[0]).reset().play();
+    mixerRef.current = mixer;
+    return () => {
+      mixer.stopAllAction();
+      mixer.uncacheRoot(obj);
+      mixerRef.current = null;
+    };
+  }, [animations, obj]);
+  useFrame((_, dt) => mixerRef.current?.update(dt));
 
   return <primitive object={obj} />;
 }
@@ -652,9 +673,14 @@ function Unit({
     const t = clock.elapsedTime;
     let y = 0;
     if (domain === "sea" && !vis.air) {
-      y = waveHeight(placement.x, placement.z, t) + 0.05;
-      g.rotation.z = Math.sin(t * 0.8 + bobSeed) * 0.04;
-      g.rotation.x = Math.cos(t * 0.6 + bobSeed) * 0.03;
+      // Mostly roll/pitch for the "rocking" read; keep the VERTICAL heave tiny
+      // so the hull never lifts off the flat water surface (which left a gap).
+      y = waveHeight(placement.x, placement.z, t) * 0.25;
+      g.rotation.z = Math.sin(t * 0.45 + bobSeed) * 0.05; // roll
+      g.rotation.x = Math.cos(t * 0.35 + bobSeed) * 0.035; // pitch
+    } else if (!vis.air) {
+      // Land unit: sit on the rolling terrain so it doesn't float over the dips.
+      y = terrainHeight(placement.x, placement.z);
     }
     if (vis.air) {
       y = 6 + Math.sin(t * 1.5 + bobSeed) * 0.3;
@@ -934,9 +960,9 @@ function Scene({
 
   return (
     <>
-      <SceneEnvironment />
-      <SkyDome sun={sun} />
-      <CloudLayer />
+      <Suspense fallback={null}>
+        <SkyEnvironment />
+      </Suspense>
       {/* Softer, overcast lighting */}
       <hemisphereLight args={["#c4cdd6", domain === "sea" ? "#1a2e3c" : "#2e3624", 0.7]} />
       <directionalLight
@@ -944,7 +970,7 @@ function Scene({
         intensity={1.5}
         color="#eef0f2"
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[512, 512]}
         shadow-camera-left={-60}
         shadow-camera-right={60}
         shadow-camera-top={60}
@@ -1002,17 +1028,69 @@ for (const f of FOLIAGE_FILES) useGLTF.preload(modelUrl(f));
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, attackerName, defenderName, className }: BattleSimProps) {
   // Broadside view: elevated enough to frame the units, low enough that the
   // overcast sky still shows above the horizon. Sea is bigger → further back.
-  const camPos: [number, number, number] = domain === "sea" ? [56, 22, 40] : [24, 16, 18];
+  // Naval view sits higher and looks down at a steeper angle over the fleet.
+  const camPos: [number, number, number] = domain === "sea" ? [44, 44, 48] : [24, 16, 18];
+  // If the GPU drops the context (driver reset under load on weak hardware) we
+  // first try to recover automatically by remounting the canvas a couple of
+  // times — this transparently fixes the common cold-start failure on the first
+  // battle (shaders/env/models all upload at once and spike a weak GPU; the
+  // remount succeeds because everything is already parsed and warm). Only after
+  // the auto-retries are exhausted do we show a manual retry overlay.
+  const [contextLost, setContextLost] = useState(false);
+  const [canvasKey, setCanvasKey] = useState(0);
+  const autoRetries = useRef(0);
   return (
     <div className={className} style={{ width: "100%", height: "100%", position: "relative" }}>
       <Canvas
-        key={domain}
+        key={canvasKey}
         shadows
         camera={{ position: camPos, fov: 50 }}
-        dpr={[1, 2]}
-        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.5 }}
+        // Cap the pixel ratio: integrated GPUs (e.g. AMD Radeon iGPUs) can't
+        // afford 1.5–2× of this fill-rate-heavy scene and trip the Windows GPU
+        // watchdog (TDR), which resets the driver and flashes the canvas black
+        // on a cycle. 1.25 stays crisp while roughly halving the pixel work.
+        dpr={[1, 1.25]}
+        performance={{ min: 0.5 }}
+        gl={{
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 0.5,
+          powerPreference: "high-performance",
+        }}
+        onCreated={({ gl }) => {
+          const canvas = gl.domElement;
+          // preventDefault lets the browser attempt to restore the context
+          // rather than leaving a permanently black surface.
+          canvas.addEventListener(
+            "webglcontextlost",
+            (e) => {
+              e.preventDefault();
+              if (autoRetries.current < 2) {
+                autoRetries.current += 1;
+                // Remount the canvas after a beat to let the GPU settle; this
+                // recovers the cold-start failure without the user lifting a
+                // finger. Bounded so a truly underpowered GPU still lands on the
+                // manual overlay instead of looping.
+                window.setTimeout(() => setCanvasKey((k) => k + 1), 500);
+              } else {
+                setContextLost(true);
+              }
+            },
+            false,
+          );
+          canvas.addEventListener(
+            "webglcontextrestored",
+            () => setContextLost(false),
+            false,
+          );
+        }}
       >
+        {/* Key the scene graph (not the Canvas) on domain: switching Sea↔Land
+            rebuilds the lightweight scene and replays the intro WITHOUT tearing
+            down and recreating the WebGL context. Re-keying the Canvas leaked a
+            fresh context per toggle until the browser's context cap was hit and
+            the surface went black mid fly-in. */}
         <Scene
+          key={domain}
           units={units}
           domain={domain}
           destroyedIds={destroyedIds}
@@ -1038,6 +1116,28 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, firingId
               {defenderName ?? "Defender"}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Graceful fallback if the GPU dropped the 3D context and didn't restore */}
+      {contextLost && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6"
+          style={{ background: "rgba(10,13,17,0.9)" }}
+        >
+          <div className="text-sm" style={{ color: "#cdd4db" }}>
+            The 3D view was interrupted by the graphics driver.
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              autoRetries.current = 0;
+              setContextLost(false);
+              setCanvasKey((k) => k + 1); // remount the canvas → fresh context
+            }}
+          >
+            ↺ Reload 3D view
+          </button>
         </div>
       )}
     </div>

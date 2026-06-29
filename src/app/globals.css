@@ -120,12 +120,19 @@ body {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.85);
-  animation: battleIntroCard 4.6s ease forwards;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.9);
+  /* Soft dark vignette behind the text so it reads as a steady card over the
+     moving 3D scene rather than floating, flickery type. */
+  background: radial-gradient(
+    60% 45% at 50% 50%,
+    rgba(8, 11, 15, 0.6) 0%,
+    rgba(8, 11, 15, 0) 70%
+  );
+  animation: battleIntroCard 4.6s ease-in-out forwards;
 }
 @keyframes battleIntroCard {
-  0%   { opacity: 0; transform: translateY(12px) scale(0.97); }
-  10%  { opacity: 1; transform: translateY(0) scale(1); }
-  75%  { opacity: 1; }
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  82% { opacity: 1; }
   100% { opacity: 0; }
 }

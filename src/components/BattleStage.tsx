@@ -68,6 +68,36 @@ function ipcValue(stack: Stack) {
   );
 }
 
+/** Row of unit icons with counts (for the survived / lost rosters). */
+function UnitTally({ stack, lost = false }: { stack: Stack; lost?: boolean }) {
+  const entries = Object.entries(stack).filter(([, n]) => (n ?? 0) > 0);
+  if (entries.length === 0) {
+    return <span className="label">{lost ? "none lost" : "none"}</span>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {entries.map(([k, n]) => (
+        <span
+          key={k}
+          className="inline-flex items-center gap-2 text-sm"
+          style={{
+            opacity: lost ? 0.8 : 1,
+            color: lost ? "var(--muted)" : "var(--foreground)",
+            textDecoration: lost ? "line-through" : undefined,
+          }}
+        >
+          <span style={{ lineHeight: 0 }}>
+            <UnitIcon unitKey={k} size={20} />
+          </span>
+          <span>
+            {n} × {UNITS_BY_KEY[k]?.name ?? k}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ForceBuilder({
   side,
   stack,
@@ -646,6 +676,33 @@ export default function BattleStage({
             <div><div className="label">Defender IPC value lost</div><div className="stat text-xl" style={{ color: DEFENDER_TINT }}>{summary.defenderIpcLost}</div></div>
             <div><div className="label">Survivors</div><div className="stat text-xl">{totalUnits(summary.attackerSurvivors)} v {totalUnits(summary.defenderSurvivors)}</div></div>
           </div>
+
+          {/* Clear per-side roster: what stayed vs what was lost. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+            {(["attacker", "defender"] as const).map((side) => {
+              const initial = side === "attacker" ? attackerStack : defenderStack;
+              const survivors = side === "attacker" ? summary.attackerSurvivors : summary.defenderSurvivors;
+              const lost = lossStack(initial, survivors);
+              const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
+              const name = side === "attacker" ? attackerName : defenderName;
+              return (
+                <div
+                  key={side}
+                  className="rounded-lg p-3"
+                  style={{ border: `1px solid ${tint}55`, background: `color-mix(in srgb, ${tint} 8%, transparent)` }}
+                >
+                  <div className="font-semibold uppercase tracking-wider text-sm" style={{ color: tint }}>
+                    {side === "attacker" ? "⚔ " : "🛡 "}{name}
+                  </div>
+                  <div className="label mt-2 mb-1" style={{ color: "var(--good)" }}>Survived</div>
+                  <UnitTally stack={survivors} />
+                  <div className="label mt-3 mb-1">Lost</div>
+                  <UnitTally stack={lost} lost />
+                </div>
+              );
+            })}
+          </div>
+
           <div className="flex items-center gap-3 mt-4">
             <button className="btn btn-primary" onClick={reset}>New Battle</button>
             {onLogResult && (

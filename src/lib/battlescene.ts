@@ -47,18 +47,21 @@ export interface UnitVisual {
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
   // Every surface ship uses the same warship hull; carrier & sub are distinct.
-  battleship: { shape: "warship", size: 15, model: "warship", target: 16, yaw: Math.PI, yOffset: -1.4 },
-  cruiser: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI, yOffset: -1.1 },
-  destroyer: { shape: "warship", size: 10, model: "warship", target: 11, yaw: Math.PI, yOffset: -1.0 },
-  transport: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI, yOffset: -1.1 },
-  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, yaw: Math.PI, doubleSide: true, dim: 0.6, yOffset: -1.7 },
-  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414", yaw: Math.PI, yOffset: -1.6 },
+  battleship: { shape: "warship", size: 15, model: "warship", target: 16, yaw: Math.PI, yOffset: -0.3 },
+  cruiser: { shape: "warship", size: 11, model: "cruiser", target: 13, yaw: 0, yOffset: -0.25 },
+  destroyer: { shape: "warship", size: 10, model: "destroyer", target: 11, yaw: 0, yOffset: -0.2 },
+  transport: { shape: "warship", size: 11, model: "warship", target: 12, yaw: Math.PI, yOffset: -0.25 },
+  carrier: { shape: "carrier", size: 20, model: "carrier", target: 22, yaw: Math.PI, doubleSide: true, dim: 0.6, yOffset: -0.9 },
+  submarine: { shape: "sub", size: 8, model: "submarine", target: 8, color: "#141414", yaw: Math.PI, yOffset: -1.2 },
   fighter: { shape: "plane", size: 6, air: true, model: "fighter", target: 6.5, autoOrient: false, yaw: 0 },
   bomber: { shape: "plane", size: 8, air: true, model: "bomber", target: 9, autoOrient: false, yaw: 0 },
-  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.4, yaw: Math.PI * 1.5 },
-  artillery: { shape: "artillery", size: 7, model: "artillery", target: 8, yaw: Math.PI / 2 },
+  // Fully textured, rigged Wehrmacht soldier with a Mixamo idle animation.
+  // autoOrient off so the standing figure isn't rotated onto its side by its
+  // shoulder width; yaw faces it down the attack axis.
+  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.6, yaw: 0, autoOrient: false },
+  artillery: { shape: "artillery", size: 7, model: "artillery", target: 6, yaw: Math.PI },
   tank: { shape: "tank", size: 8, model: "tank", target: 8 },
-  aaGun: { shape: "artillery", size: 7, model: "artillery", target: 7, yaw: Math.PI / 2 },
+  aaGun: { shape: "artillery", size: 7, model: "artillery", target: 5.5, yaw: Math.PI },
   factory: { shape: "structure", size: 4 },
 };
 
