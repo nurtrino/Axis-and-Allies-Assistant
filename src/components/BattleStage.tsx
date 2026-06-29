@@ -53,8 +53,9 @@ const ATTACKER_TINT = "#6ea0d6"; // blue — attacker
 const DEFENDER_TINT = "#e0795f"; // red — defender
 
 // Units selectable when building a force (everything that can be in a battle;
-// the industrial complex never fights, so it's excluded).
-const SELECTABLE = UNITS.filter((u) => u.key !== "factory");
+// the industrial complex never fights, and the AA gun is excluded from the
+// picker).
+const SELECTABLE = UNITS.filter((u) => u.key !== "factory" && u.key !== "aaGun");
 
 type Side = "attacker" | "defender";
 
@@ -259,6 +260,18 @@ export default function BattleStage({
   const [attackerStack, setAttackerStack] = useState<Stack>(initialAttacker ?? {});
   const [defenderStack, setDefenderStack] = useState<Stack>({});
   const [amphibious, setAmphibious] = useState(initialAmphibious ?? false);
+
+  // A battle is fought on land OR at sea — never both. Mixing a land-only unit
+  // with a naval unit (on either side) is an invalid matchup; aircraft are
+  // exempt since they fight in either. Surface an error and block the battle.
+  const forceError = useMemo<string | null>(() => {
+    const keys = [...Object.keys(attackerStack), ...Object.keys(defenderStack)];
+    const hasLand = keys.some((k) => UNITS_BY_KEY[k]?.domain === "land");
+    const hasSea = keys.some((k) => UNITS_BY_KEY[k]?.domain === "sea");
+    return hasLand && hasSea
+      ? "Land and naval units can't fight in the same battle — remove the land units or the water units."
+      : null;
+  }, [attackerStack, defenderStack]);
   const [state, setState] = useState<BattleState | null>(null);
   const [rolling, setRolling] = useState(false);
   const [diceReady, setDiceReady] = useState(false);
@@ -423,7 +436,7 @@ export default function BattleStage({
   }
 
   function begin() {
-    if (totalUnits(attackerStack) === 0) return;
+    if (totalUnits(attackerStack) === 0 || forceError) return;
     setPadRoll(null);
     setHitFlash(null);
     const st = createBattle(attackerStack, defenderStack, { amphibious });
@@ -617,15 +630,33 @@ export default function BattleStage({
 
       {/* Setup controls */}
       {mode === "setup" && (
-        <div className="panel p-4 flex flex-wrap items-center justify-between gap-3">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" checked={amphibious} onChange={(e) => setAmphibious(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
-            <span className="text-sm">Amphibious assault</span>
-            <span className="label">— attacking battleships &amp; cruisers bombard first</span>
-          </label>
-          <button className="btn btn-primary" onClick={begin} disabled={totalUnits(attackerStack) === 0}>
-            ⚔ Begin Battle
-          </button>
+        <div className="panel p-4 space-y-3">
+          {forceError && (
+            <div
+              className="text-sm rounded px-3 py-2"
+              style={{
+                background: "rgba(224,121,95,0.16)",
+                color: "#f4cabd",
+                border: "1px solid rgba(224,121,95,0.6)",
+              }}
+            >
+              ⚠ {forceError}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={amphibious} onChange={(e) => setAmphibious(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+              <span className="text-sm">Amphibious assault</span>
+              <span className="label">— attacking battleships &amp; cruisers bombard first</span>
+            </label>
+            <button
+              className="btn btn-primary"
+              onClick={begin}
+              disabled={totalUnits(attackerStack) === 0 || !!forceError}
+            >
+              ⚔ Begin Battle
+            </button>
+          </div>
         </div>
       )}
 
