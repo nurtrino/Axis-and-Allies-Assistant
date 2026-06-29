@@ -34,6 +34,9 @@
 *.db
 *.db-journal
 
+# Docker-free local Postgres data (PGlite — see scripts/pg-dev.mjs)
+/.pgdata/
+
 # local hidden dev-server log
 /dev-server.log
 
