@@ -259,31 +259,35 @@ function FoliagePiece({ file, x, z, yaw, target }: FoliageInstance) {
 }
 
 /**
- * Scatter trees and bushes across the land battlefield with a deterministic
- * seeded RNG. Keeps the centre clear so foliage never overlaps the armies, and
- * mixes the two tree models with the bush (~60/40 tree/bush) at varied scale.
+ * A dense dead forest: lots of cloned trees plus scattered bushes, placed with a
+ * deterministic seeded RNG and biased outward so the forest thickens toward the
+ * horizon while the centre stays clear for the armies.
+ *
+ * Cloning (not GPU instancing) on purpose: the tree models are mesh-quantized,
+ * and instancing their compressed geometry shatters it. The trees are low-poly,
+ * so ~150 clones are a few hundred cheap draw calls — fine on any real GPU.
  */
 function Foliage() {
   const items = useMemo<FoliageInstance[]>(() => {
     const rng = mulberry32(0x5eedface);
     const out: FoliageInstance[] = [];
-    const FIELD = 105; // spread over the longer hills, still framing the action
-    const CLEAR_X = 28; // keep the formation box clear of foliage
-    const CLEAR_Z = 24;
+    const FIELD = 140;
+    const CLEAR_X = 22; // keep the firing lanes clear, but let trees flank close
+    const CLEAR_Z = 20;
     let guard = 0;
-    // A dense treeline + plenty of bushes. Foliage casts no shadows (see
-    // FoliagePiece), so the extra instances stay affordable on a weak GPU.
-    while (out.length < 40 && guard < 1200) {
+    // Even fill of the whole field outside the clear box, so the forest wraps
+    // the battlefield — flanks and back — instead of clustering in the corners.
+    while (out.length < 165 && guard < 6000) {
       guard++;
       const x = (rng() * 2 - 1) * FIELD;
       const z = (rng() * 2 - 1) * FIELD;
+      if (Math.abs(x) < CLEAR_X && Math.abs(z) < CLEAR_Z) continue;
       const yaw = rng() * Math.PI * 2;
       const kind = rng();
-      const jitter = 0.9 + rng() * 0.7; // 0.9..1.6
-      if (Math.abs(x) < CLEAR_X && Math.abs(z) < CLEAR_Z) continue;
-      const isBush = kind > 0.45; // ~55% bushes
+      const jitter = 0.8 + rng() * 0.9; // 0.8..1.7 → varied heights
+      const isBush = kind > 0.9; // ~10% bushes → mostly trees
       const file = isBush ? "bush" : rng() > 0.5 ? "tree1" : "tree2";
-      const base = isBush ? 5 : 17; // bigger so they read; trees tower over units
+      const base = isBush ? 5 : 15;
       out.push({ file, x, z, yaw, target: base * jitter });
     }
     return out;
@@ -1029,7 +1033,9 @@ export default function BattleSim({ units, domain, destroyedIds, salvo, firingId
   // Broadside view: elevated enough to frame the units, low enough that the
   // overcast sky still shows above the horizon. Sea is bigger → further back.
   // Naval view sits higher and looks down at a steeper angle over the fleet.
-  const camPos: [number, number, number] = domain === "sea" ? [44, 44, 48] : [24, 16, 18];
+  // Viewed from -X so the attacker (blue) reads on the left and defender (red)
+  // on the right.
+  const camPos: [number, number, number] = domain === "sea" ? [-44, 44, 48] : [-24, 16, 18];
   // If the GPU drops the context (driver reset under load on weak hardware) we
   // first try to recover automatically by remounting the canvas a couple of
   // times — this transparently fixes the common cold-start failure on the first
