@@ -43,6 +43,9 @@ export interface UnitVisual {
   dim?: number;
   /** vertical offset in world units (negative sits the unit lower, e.g. a sub) */
   yOffset?: number;
+  /** model ships a "death" animation clip — play it on kill instead of the
+   *  collapse/burn wreck treatment (e.g. the rigged soldier) */
+  animatedDeath?: boolean;
 }
 
 export const UNIT_VISUAL: Record<string, UnitVisual> = {
@@ -58,7 +61,7 @@ export const UNIT_VISUAL: Record<string, UnitVisual> = {
   // Fully textured, rigged Wehrmacht soldier with a Mixamo idle animation.
   // autoOrient off so the standing figure isn't rotated onto its side by its
   // shoulder width; yaw faces it down the attack axis.
-  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.6, yaw: 0, autoOrient: false },
+  infantry: { shape: "infantry", size: 2, model: "infantry", target: 2.6, yaw: 0, autoOrient: false, animatedDeath: true },
   artillery: { shape: "artillery", size: 7, model: "artillery", target: 6, yaw: Math.PI },
   tank: { shape: "tank", size: 8, model: "tank", target: 8 },
   aaGun: { shape: "artillery", size: 7, model: "artillery", target: 5.5, yaw: Math.PI },

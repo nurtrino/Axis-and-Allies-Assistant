@@ -455,28 +455,195 @@ function UnitMesh({ shape, color }: { shape: string; color: string }) {
   }
 }
 
-function Burning() {
-  // No dynamic light here on purpose: adding a pointLight per destroyed unit
-  // forces Three.js to recompile every material (a visible freeze when several
-  // units die at once). A bright emissive flame + smoke reads fine without it.
-  const flame = useRef<THREE.Mesh>(null);
+// Shared GLSL: cheap value-noise FBM used by both the flame and smoke shaders.
+const FIRE_NOISE_GLSL = `
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm(vec2 p){
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.0 + 11.0; a *= 0.5; }
+  return v;
+}
+`;
+
+const FIRE_VERT_GLSL = `
+varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+`;
+
+// Additive flame: a hot, tapering tongue carved out of rising turbulence, with a
+// deep-red → orange → yellow → white-hot colour ramp.
+const FLAME_FRAG_GLSL = `
+precision highp float;
+varying vec2 vUv;
+uniform float uTime;
+uniform float uSeed;
+${FIRE_NOISE_GLSL}
+void main(){
+  vec2 uv = vUv;
+  float x = uv.x * 2.0 - 1.0;
+  float t = uTime + uSeed;
+  float n = fbm(vec2(uv.x * 3.0 + uSeed, uv.y * 3.5 - t * 2.2));
+  float width = mix(0.85, 0.08, pow(uv.y, 0.8));        // narrows as it rises
+  float horiz = smoothstep(width, 0.0, abs(x));
+  float vert = smoothstep(1.05, 0.0, uv.y) * smoothstep(0.0, 0.07, uv.y);
+  float fire = horiz * vert * (n * 1.7);
+  fire = smoothstep(0.22, 0.95, fire);
+  vec3 col = vec3(0.7, 0.06, 0.0);
+  col = mix(col, vec3(1.0, 0.42, 0.0), smoothstep(0.15, 0.5, fire));
+  col = mix(col, vec3(1.0, 0.85, 0.25), smoothstep(0.5, 0.8, fire));
+  col = mix(col, vec3(1.0, 1.0, 0.9), smoothstep(0.82, 1.0, fire));
+  gl_FragColor = vec4(col, fire); // additive: contributes col * fire
+}
+`;
+
+// Alpha-blended smoke: a darker, slower plume that widens and fades as it rises
+// above the flame.
+const SMOKE_FRAG_GLSL = `
+precision highp float;
+varying vec2 vUv;
+uniform float uTime;
+uniform float uSeed;
+${FIRE_NOISE_GLSL}
+void main(){
+  vec2 uv = vUv;
+  float x = uv.x * 2.0 - 1.0;
+  float t = uTime + uSeed;
+  float n = fbm(vec2(uv.x * 2.0 + uSeed, uv.y * 2.0 - t * 0.6));
+  float width = mix(0.3, 1.0, uv.y);                    // widens as it rises
+  float horiz = smoothstep(width, 0.0, abs(x));
+  float vert = smoothstep(0.1, 0.45, uv.y) * smoothstep(1.0, 0.5, uv.y);
+  float smoke = horiz * vert * n * 1.7;
+  smoke = smoothstep(0.2, 0.85, smoke);
+  gl_FragColor = vec4(vec3(0.05, 0.05, 0.06), smoke * 0.5);
+}
+`;
+
+function Burning({ scale = 1 }: { scale?: number }) {
+  // Procedural shader flame + smoke — no texture. Both materials share identical
+  // shader source per type, so Three compiles each program once and reuses it;
+  // many wrecks dying at once won't trigger recompiles (which would stutter). No
+  // dynamic light on purpose — a per-unit pointLight forces a full material
+  // recompile, and the additive flame reads as hot without one.
+  const seed = useMemo(() => Math.random() * 100, []);
+  const flameMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        uniforms: { uTime: { value: 0 }, uSeed: { value: seed } },
+        vertexShader: FIRE_VERT_GLSL,
+        fragmentShader: FLAME_FRAG_GLSL,
+      }),
+    [seed],
+  );
+  const smokeMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+        uniforms: { uTime: { value: 0 }, uSeed: { value: seed } },
+        vertexShader: FIRE_VERT_GLSL,
+        fragmentShader: SMOKE_FRAG_GLSL,
+      }),
+    [seed],
+  );
+  useEffect(
+    () => () => {
+      flameMat.dispose();
+      smokeMat.dispose();
+    },
+    [flameMat, smokeMat],
+  );
   useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
-    const f = 0.6 + Math.sin(t * 22) * 0.2 + Math.sin(t * 37.3) * 0.12;
-    if (flame.current) flame.current.scale.setScalar(0.8 + f * 0.5);
+    flameMat.uniforms.uTime.value = clock.elapsedTime;
+    smokeMat.uniforms.uTime.value = clock.elapsedTime;
   });
   return (
-    <group>
-      <mesh ref={flame} position={[0, 1.1, 0]}>
-        <coneGeometry args={[0.5, 1.8, 8]} />
-        <meshBasicMaterial color="#ff8a1e" transparent opacity={0.95} toneMapped={false} />
+    <Billboard>
+      <mesh position={[0, 2.5 * scale, 0]} scale={[2.5 * scale, 4.8 * scale, 1]} material={smokeMat}>
+        <planeGeometry args={[1, 1]} />
       </mesh>
-      {[0, 1, 2].map((i) => (
-        <mesh key={i} position={[0, 2 + i * 0.9, 0]}>
-          <sphereGeometry args={[0.5 + i * 0.25, 8, 8]} />
-          <meshBasicMaterial color="#2e2e2e" transparent opacity={0.4 - i * 0.1} />
+      <mesh position={[0, 1.45 * scale, 0]} scale={[2.7 * scale, 3.2 * scale, 1]} material={flameMat}>
+        <planeGeometry args={[1, 1]} />
+      </mesh>
+    </Billboard>
+  );
+}
+
+// Explosion flipbook (Unity Labs "Explosion00", CC0): a clean 5×5 grid of 25
+// realistic 400px frames (2000×2000, straight alpha) — repacked from the source
+// image sequence. High-res so it stays crisp engulfing a tank.
+const EXPL_COLS = 5;
+const EXPL_ROWS = 5;
+const EXPL_FRAMES = EXPL_COLS * EXPL_ROWS;
+const EXPL_FPS = 30;
+
+/**
+ * Real explosion animation: a camera-facing billboard playing through the
+ * explosion sprite sheet once, then calling `onComplete` so the caller can swap
+ * it for a lingering fire. Each instance clones the texture so its frame offset
+ * animates independently.
+ */
+function SpriteExplosion({
+  scale = 1,
+  lift = 0.18,
+  onComplete,
+}: {
+  scale?: number;
+  lift?: number;
+  onComplete?: () => void;
+}) {
+  const sheet = useLoader(THREE.TextureLoader, "/assets/sim/explosion.png");
+  const tex = useMemo(() => {
+    const t = sheet.clone();
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.repeat.set(1 / EXPL_COLS, 1 / EXPL_ROWS);
+    t.needsUpdate = true;
+    return t;
+  }, [sheet]);
+  const grp = useRef<THREE.Group>(null);
+  const t0 = useRef<number | null>(null);
+  const frameRef = useRef(-1);
+  const doneRef = useRef(false);
+  useFrame(({ clock }) => {
+    if (t0.current === null) t0.current = clock.elapsedTime;
+    const frame = Math.floor((clock.elapsedTime - t0.current) * EXPL_FPS);
+    if (frame >= EXPL_FRAMES) {
+      if (!doneRef.current) {
+        doneRef.current = true;
+        if (grp.current) grp.current.visible = false;
+        onComplete?.();
+      }
+      return;
+    }
+    if (frame !== frameRef.current) {
+      frameRef.current = frame;
+      const col = frame % EXPL_COLS;
+      const row = Math.floor(frame / EXPL_COLS);
+      // sheet rows run top→bottom; three's UV origin is bottom-left, so flip v.
+      tex.offset.set(col / EXPL_COLS, 1 - (row + 1) / EXPL_ROWS);
+    }
+  });
+  return (
+    <group ref={grp}>
+      {/* The fireball sits at the frame centre. For ground units lift the
+          billboard centre to ≈⅕ of its size so the blast lands on the tank's
+          body; pass lift=0 to centre it directly on an airborne unit. */}
+      <Billboard position={[0, scale * lift, 0]}>
+        <mesh scale={scale}>
+          <planeGeometry args={[1, 1]} />
+          <meshBasicMaterial map={tex} transparent depthWrite={false} toneMapped={false} />
         </mesh>
-      ))}
+      </Billboard>
     </group>
   );
 }
@@ -494,6 +661,8 @@ function ModelUnit({
   autoOrient = true,
   doubleSide = false,
   dim,
+  destroyed = false,
+  fireToken = 0,
   onHeight,
 }: {
   file: string;
@@ -503,6 +672,8 @@ function ModelUnit({
   autoOrient?: boolean;
   doubleSide?: boolean;
   dim?: number;
+  destroyed?: boolean;
+  fireToken?: number;
   onHeight?: (h: number) => void;
 }) {
   const { scene, animations } = useGLTF(modelUrl(file));
@@ -568,24 +739,79 @@ function ModelUnit({
     onHeight?.(height);
   }, [height, onHeight]);
 
-  // Play any baked-in skeletal animation (e.g. the soldier's Mixamo idle). The
-  // mixer targets this instance's cloned skeleton, so each unit animates on its
-  // own. No-op for static models (ships, tanks) that ship no clips.
+  // Play baked-in skeletal animation (the soldier's Mixamo idle / fire / death).
+  // The mixer targets this instance's cloned skeleton so each unit animates on
+  // its own. No-op for static models (ships, tanks) that ship no clips.
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const actionsRef = useRef<{
+    idle?: THREE.AnimationAction;
+    fire?: THREE.AnimationAction;
+    death?: THREE.AnimationAction;
+  }>({});
+  const dyingRef = useRef(false);
   useEffect(() => {
     if (!animations.length) {
       mixerRef.current = null;
       return;
     }
     const mixer = new THREE.AnimationMixer(obj);
-    mixer.clipAction(animations[0]).reset().play();
+    const find = (n: string) => animations.find((a) => a.name === n);
+    const idle = mixer.clipAction(find("idle") ?? animations[0]);
+    idle.play();
+    const fireClip = find("fire");
+    const fire = fireClip ? mixer.clipAction(fireClip) : undefined;
+    if (fire) fire.setLoop(THREE.LoopOnce, 1);
+    const deathClip = find("death");
+    const death = deathClip ? mixer.clipAction(deathClip) : undefined;
+    if (death) {
+      death.setLoop(THREE.LoopOnce, 1);
+      death.clampWhenFinished = true; // hold the final (collapsed) pose
+    }
+    actionsRef.current = { idle, fire, death };
     mixerRef.current = mixer;
+    // When the one-shot fire clip finishes, ease back to idle (unless dead).
+    const onFinished = (e: { action: THREE.AnimationAction }) => {
+      if (e.action === fire && !dyingRef.current) {
+        fire?.fadeOut(0.15);
+        idle.reset().fadeIn(0.15).play();
+      }
+    };
+    mixer.addEventListener("finished", onFinished as never);
     return () => {
+      mixer.removeEventListener("finished", onFinished as never);
       mixer.stopAllAction();
       mixer.uncacheRoot(obj);
       mixerRef.current = null;
+      actionsRef.current = {};
     };
   }, [animations, obj]);
+
+  // Cross-fade idle → death once on kill (and back to idle on a fresh battle).
+  useEffect(() => {
+    const { idle, fire, death } = actionsRef.current;
+    if (!death) return;
+    if (destroyed && !dyingRef.current) {
+      dyingRef.current = true;
+      idle?.fadeOut(0.15);
+      fire?.fadeOut(0.1);
+      death.reset().fadeIn(0.15).play();
+    } else if (!destroyed && dyingRef.current) {
+      dyingRef.current = false;
+      death.fadeOut(0.15);
+      idle?.reset().fadeIn(0.2).play();
+    }
+  }, [destroyed]);
+
+  // Fire the rifle once when this unit scores a hit (fireToken increments).
+  const lastFireRef = useRef(0);
+  useEffect(() => {
+    const { idle, fire } = actionsRef.current;
+    if (!fire || !fireToken || fireToken === lastFireRef.current || dyingRef.current) return;
+    lastFireRef.current = fireToken;
+    idle?.fadeOut(0.08);
+    fire.reset().fadeIn(0.08).play();
+  }, [fireToken]);
+
   useFrame((_, dt) => mixerRef.current?.update(dt));
 
   return <primitive object={obj} />;
@@ -654,18 +880,46 @@ function Unit({
   domain,
   destroyed,
   health,
+  salvo,
+  firing,
 }: {
   placement: Placement;
   domain: Domain;
   destroyed: boolean;
   health: number;
+  salvo: number;
+  firing: boolean;
 }) {
   const group = useRef<THREE.Group>(null);
+  const modelWrap = useRef<THREE.Group>(null);
   const vis = visualFor(placement.unit.type);
   const color = placement.unit.side === "attacker" ? ATTACKER_COLOR : DEFENDER_COLOR;
   const sinkRef = useRef(0);
+  const t0Ref = useRef<number | null>(null); // spawn time, for the plane fly-in
   const bobSeed = seedFrom(placement.unit.id);
   const [modelH, setModelH] = useState<number | null>(null);
+  const [crashed, setCrashed] = useState(false); // plane hit the ground
+  const [exploded, setExploded] = useState(false); // explosion finished → fire pile
+  const [fireToken, setFireToken] = useState(0); // bumps when this unit fires
+
+  // Reset death state when a unit comes back to life (battle reset).
+  useEffect(() => {
+    if (!destroyed) {
+      sinkRef.current = 0;
+      setCrashed(false);
+      setExploded(false);
+    }
+  }, [destroyed]);
+
+  // Each volley this unit scores a hit in, trigger its fire animation.
+  const lastSalvoRef = useRef(salvo);
+  useEffect(() => {
+    if (salvo !== lastSalvoRef.current) {
+      lastSalvoRef.current = salvo;
+      if (firing && !destroyed) setFireToken((n) => n + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salvo]);
 
   const fallbackTop = vis.air ? 3 : (vis.target ?? vis.size) * 0.5;
   const barY = (modelH ?? fallbackTop) + (vis.air ? 1.1 : 0.7);
@@ -675,57 +929,114 @@ function Unit({
     const g = group.current;
     if (!g) return;
     const t = clock.elapsedTime;
+    if (t0Ref.current === null) t0Ref.current = t;
+    const age = t - t0Ref.current;
+    let x = placement.x;
+    let z = placement.z;
     let y = 0;
-    if (domain === "sea" && !vis.air) {
-      // Mostly roll/pitch for the "rocking" read; keep the VERTICAL heave tiny
-      // so the hull never lifts off the flat water surface (which left a gap).
+
+    if (vis.air) {
+      const hoverY = 6 + Math.sin(t * 1.5 + bobSeed) * 0.3;
+      if (destroyed) {
+        // Hit: explodes in the air (rendered below), then noses headfirst into
+        // the ground where it leaves a burning wreck.
+        sinkRef.current = Math.min(sinkRef.current + dt * 0.7, 1);
+        const s = sinkRef.current;
+        g.rotation.x = -s * 1.5; // pitch nose-down
+        y = 6 - s * 6.2;
+        if (s >= 1 && !crashed) setCrashed(true);
+        if (modelWrap.current) modelWrap.current.visible = s < 1;
+      } else {
+        if (modelWrap.current) modelWrap.current.visible = true;
+        // Fly-in: swoop from high and behind the line to the hover spot, then bob.
+        const ENTER = 3.6;
+        if (age < ENTER) {
+          const e = 1 - Math.pow(1 - age / ENTER, 3); // easeOutCubic
+          const dir = placement.unit.side === "attacker" ? -1 : 1;
+          y = THREE.MathUtils.lerp(28, hoverY, e);
+          z = THREE.MathUtils.lerp(placement.z + dir * 75, placement.z, e);
+        } else {
+          y = hoverY;
+        }
+      }
+    } else if (domain === "sea") {
       y = waveHeight(placement.x, placement.z, t) * 0.25;
       g.rotation.z = Math.sin(t * 0.45 + bobSeed) * 0.05; // roll
       g.rotation.x = Math.cos(t * 0.35 + bobSeed) * 0.035; // pitch
-    } else if (!vis.air) {
-      // Land unit: sit on the rolling terrain so it doesn't float over the dips.
-      y = terrainHeight(placement.x, placement.z);
-    }
-    if (vis.air) {
-      y = 6 + Math.sin(t * 1.5 + bobSeed) * 0.3;
-    }
-    y += vis.yOffset ?? 0; // e.g. sit the submarine lower in the water
-    if (destroyed) {
-      // slow sink/fall so the death reads (not an instant disappear)
-      sinkRef.current = Math.min(sinkRef.current + dt * 0.17, 1);
-      const s = sinkRef.current;
-      if (domain === "sea" && !vis.air) {
+      if (destroyed) {
+        sinkRef.current = Math.min(sinkRef.current + dt * 0.17, 1);
+        const s = sinkRef.current;
         y -= s * 3; // sink beneath the waves
         g.rotation.z += s * 0.6;
-      } else if (vis.air) {
-        // plane descends straight into the ground (no tumble)
-        y = 6 - s * 9;
-      } else {
-        g.scale.setScalar(Math.max(0.001, 1 - s)); // wreck collapses
+      }
+    } else {
+      // Land unit on the rolling terrain. Soldiers play a death animation;
+      // tanks/artillery explode and then leave a fire pile (the model is hidden
+      // once the blast finishes). Both stay put — no sink/collapse here.
+      y = terrainHeight(placement.x, placement.z);
+      if (modelWrap.current) {
+        modelWrap.current.visible = !(destroyed && !vis.animatedDeath && exploded);
       }
     }
-    g.position.set(placement.x, y, placement.z);
+    y += vis.yOffset ?? 0; // e.g. sit the submarine lower in the water
+    g.position.set(x, y, z);
   });
 
+  // Land wrecks (tank/artillery) and burning ships; soldiers use their death
+  // animation and aircraft crash (handled separately).
+  const showWreckFx = destroyed && !vis.air && !vis.animatedDeath;
+
   return (
-    <group ref={group} rotation-y={placement.rotationY} position={[placement.x, 0, placement.z]}>
-      {vis.model ? (
-        <ModelUnit
-          file={vis.model}
-          target={vis.target ?? vis.size}
-          color={vis.color}
-          yaw={vis.yaw}
-          autoOrient={vis.autoOrient}
-          doubleSide={vis.doubleSide}
-          dim={vis.dim}
-          onHeight={setModelH}
-        />
-      ) : (
-        <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
+    <>
+      <group ref={group} rotation-y={placement.rotationY} position={[placement.x, 0, placement.z]}>
+        <group ref={modelWrap}>
+          {vis.model ? (
+            <ModelUnit
+              file={vis.model}
+              target={vis.target ?? vis.size}
+              color={vis.color}
+              yaw={vis.yaw}
+              autoOrient={vis.autoOrient}
+              doubleSide={vis.doubleSide}
+              dim={vis.dim}
+              destroyed={destroyed}
+              fireToken={fireToken}
+              onHeight={setModelH}
+            />
+          ) : (
+            <UnitMesh shape={vis.shape} color={destroyed ? "#555" : color} />
+          )}
+        </group>
+        <HealthBar side={placement.unit.side} y={barY} width={barW} destroyed={destroyed} health={health} />
+        {showWreckFx &&
+          (domain === "sea" ? (
+            // Ships sink and burn (no ground blast).
+            <Burning />
+          ) : exploded ? (
+            // Tank/artillery: a fire pile remains once the blast finishes.
+            <Burning />
+          ) : (
+            // Tank/artillery: the blast covers the unit, then we remove it.
+            <SpriteExplosion
+              scale={(vis.target ?? vis.size) * 1.4}
+              onComplete={() => setExploded(true)}
+            />
+          ))}
+      </group>
+
+      {/* Aircraft: a fireball the instant it's hit (mid-air, centred on the
+          plane), then it noses into the ground and leaves a burning wreck. */}
+      {destroyed && vis.air && !exploded && (
+        <group position={[placement.x, 6, placement.z]}>
+          <SpriteExplosion scale={13} lift={0} onComplete={() => setExploded(true)} />
+        </group>
       )}
-      <HealthBar side={placement.unit.side} y={barY} width={barW} destroyed={destroyed} health={health} />
-      {destroyed && <Burning />}
-    </group>
+      {crashed && (
+        <group position={[placement.x, terrainHeight(placement.x, placement.z) + 0.3, placement.z]}>
+          <Burning scale={1.3} />
+        </group>
+      )}
+    </>
   );
 }
 
@@ -738,8 +1049,9 @@ interface Beam {
   delay: number; // seconds after the volley starts before this shot fires
 }
 
-const BEAM_STAGGER = 0.09; // gap between successive shots
-const BEAM_LIFE = 0.4; // how long each shot stays visible
+const BEAM_STAGGER = 0.08; // gap between successive shooters
+const BEAM_LIFE = 0.32; // how long each shot stays visible
+const BEAM_TRAVEL = 0.22; // seconds for a tracer to fly muzzle → target
 
 /** Self-animating tracer + muzzle flash; appears at `beam.delay` after start. */
 function BeamMesh({ beam, startRef }: { beam: Beam; startRef: React.RefObject<number> }) {
@@ -747,35 +1059,62 @@ function BeamMesh({ beam, startRef }: { beam: Beam; startRef: React.RefObject<nu
   const beamMat = useRef<THREE.MeshBasicMaterial>(null);
   const flash = useRef<THREE.Mesh>(null);
   const flashMat = useRef<THREE.MeshBasicMaterial>(null);
-  const { pos, quat, len } = useMemo(() => {
-    const dir = new THREE.Vector3().subVectors(beam.to, beam.from);
-    const length = dir.length();
+  const flashCore = useRef<THREE.Mesh>(null);
+  const flashCoreMat = useRef<THREE.MeshBasicMaterial>(null);
+  const head = useRef<THREE.Mesh>(null);
+  const headMat = useRef<THREE.MeshBasicMaterial>(null);
+  const { pos, quat, len, from, dir } = useMemo(() => {
+    const d = new THREE.Vector3().subVectors(beam.to, beam.from);
+    const length = d.length();
     const mid = new THREE.Vector3().addVectors(beam.from, beam.to).multiplyScalar(0.5);
     const q = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
-      dir.clone().normalize(),
+      d.clone().normalize(),
     );
-    return { pos: mid, quat: q, len: length };
+    return { pos: mid, quat: q, len: length, from: beam.from.clone(), dir: d.clone() };
   }, [beam]);
 
   useFrame(({ clock }) => {
     const age = clock.elapsedTime - (startRef.current ?? 0) - beam.delay;
     const o = age < 0 ? 0 : Math.max(0, 1 - age / BEAM_LIFE);
-    if (grp.current) grp.current.visible = o > 0.02;
-    if (beamMat.current) beamMat.current.opacity = o;
-    if (flashMat.current) flashMat.current.opacity = o;
-    if (flash.current) flash.current.scale.setScalar(0.12 + o * 0.5);
+    if (grp.current) grp.current.visible = o > 0.02 && age >= 0;
+    if (beamMat.current) beamMat.current.opacity = o * 0.8;
+    // Muzzle flash at the firing unit — big and bright so it's obvious where the
+    // shot came from. Fades faster than the tracer (a punchy "blam" at source).
+    const fo = age < 0 ? 0 : Math.max(0, 1 - age / (BEAM_LIFE * 0.55));
+    if (flashMat.current) flashMat.current.opacity = fo * 0.9;
+    if (flash.current) flash.current.scale.setScalar(0.7 + fo * 2.4);
+    if (flashCoreMat.current) flashCoreMat.current.opacity = fo;
+    if (flashCore.current) flashCore.current.scale.setScalar(0.45 + fo * 1.3);
+    // Travelling tracer head flies muzzle → target so the direction (and origin)
+    // of each standardized shot reads at a glance.
+    const p = age < 0 ? 0 : Math.min(1, age / BEAM_TRAVEL);
+    if (head.current) {
+      head.current.position.set(from.x + dir.x * p, from.y + dir.y * p, from.z + dir.z * p);
+      head.current.scale.setScalar(0.35 + Math.sin(p * Math.PI) * 0.15);
+    }
+    if (headMat.current) headMat.current.opacity = o > 0.02 ? 1 : 0;
   });
 
   return (
     <group ref={grp} visible={false}>
       <mesh position={pos} quaternion={quat}>
-        <cylinderGeometry args={[0.05, 0.05, len, 6]} />
+        <cylinderGeometry args={[0.06, 0.06, len, 6]} />
         <meshBasicMaterial ref={beamMat} color="#ffd24a" transparent opacity={0} toneMapped={false} />
       </mesh>
+      {/* Muzzle flash: outer orange glow + white-hot core, at the firing unit. */}
       <mesh ref={flash} position={beam.from}>
+        <sphereGeometry args={[1, 10, 10]} />
+        <meshBasicMaterial ref={flashMat} color="#ff9d1e" transparent opacity={0} toneMapped={false} />
+      </mesh>
+      <mesh ref={flashCore} position={beam.from}>
+        <sphereGeometry args={[1, 10, 10]} />
+        <meshBasicMaterial ref={flashCoreMat} color="#fff6cf" transparent opacity={0} toneMapped={false} />
+      </mesh>
+      {/* Travelling tracer head. */}
+      <mesh ref={head} position={beam.from}>
         <sphereGeometry args={[1, 8, 8]} />
-        <meshBasicMaterial ref={flashMat} color="#fff2b0" transparent opacity={0} toneMapped={false} />
+        <meshBasicMaterial ref={headMat} color="#fff2b0" transparent opacity={0} toneMapped={false} />
       </mesh>
     </group>
   );
@@ -805,7 +1144,8 @@ function Volley({
     const m = new Map<string, THREE.Vector3>();
     for (const p of placements) {
       const air = visualFor(p.unit.type).air;
-      m.set(p.unit.id, new THREE.Vector3(p.x, air ? 6 : domain === "sea" ? 0.6 : 0.8, p.z));
+      // Fire from roughly gun/turret height so the muzzle flash sits on the unit.
+      m.set(p.unit.id, new THREE.Vector3(p.x, air ? 6 : domain === "sea" ? 1.2 : 1.5, p.z));
     }
     return m;
   }, [placements, domain]);
@@ -821,24 +1161,25 @@ function Volley({
       const def = live.filter((p) => p.unit.side === "defender");
       const shooters = live.filter((p) => firing.has(p.unit.id));
       const next: Beam[] = [];
-      let i = 0;
+      let slot = 0;
       for (const s of shooters) {
         const enemies = s.unit.side === "attacker" ? def : att;
         if (!enemies.length) continue;
         const target = enemies[Math.floor(Math.random() * enemies.length)];
         const a = posOf.get(s.unit.id);
         const b = posOf.get(target.unit.id);
-        if (a && b) {
-          next.push({ key: `${s.unit.id}-${salvo}`, from: a, to: b, delay: i * BEAM_STAGGER });
-          i++;
-        }
+        if (!a || !b) continue;
+        next.push({ key: `${s.unit.id}-${salvo}`, from: a, to: b, delay: slot * BEAM_STAGGER });
+        slot++;
       }
       if (playSounds) {
         const sounds = new Set(shooters.map((p) => fireSoundFor(p.unit.type)));
         sounds.forEach((s) => playSound(s));
       }
       startRef.current = clock.elapsedTime;
-      durRef.current = Math.max(0, i - 1) * BEAM_STAGGER + BEAM_LIFE + 0.1;
+      // Longest shot = last shooter's stagger + its burst tail + the shot's life.
+      const lastDelay = next.reduce((m, b) => Math.max(m, b.delay), 0);
+      durRef.current = lastDelay + BEAM_LIFE + 0.1;
       setBeams(next);
       return;
     }
@@ -999,6 +1340,8 @@ function Scene({
             domain={domain}
             destroyed={destroyed.has(p.unit.id)}
             health={healthById?.[p.unit.id] ?? 1}
+            salvo={salvo}
+            firing={firingIds.includes(p.unit.id)}
           />
         ))}
       </Suspense>
@@ -1028,6 +1371,12 @@ function Scene({
 // Warm the glTF cache so models pop in fast on first battle.
 for (const f of MODEL_FILES) useGLTF.preload(modelUrl(f));
 for (const f of FOLIAGE_FILES) useGLTF.preload(modelUrl(f));
+// Warm the explosion sheet too: without this the first blast suspends the whole
+// scene (~1s freeze) while the 920 KB texture loads on demand. Browser-only —
+// during SSR/build there's no server to fetch it from (it would error the build).
+if (typeof window !== "undefined") {
+  useLoader.preload(THREE.TextureLoader, "/assets/sim/explosion.png");
+}
 
 export default function BattleSim({ units, domain, destroyedIds, salvo, firingIds, healthById, playSounds, attackerName, defenderName, className }: BattleSimProps) {
   // Broadside view: elevated enough to frame the units, low enough that the
