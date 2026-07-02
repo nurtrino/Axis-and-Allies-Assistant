@@ -18,8 +18,8 @@ export default async function CampaignsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Campaigns</h1>
-          <p className="label mt-1">Your logged Anniversary Edition games</p>
+          <h1>Campaigns</h1>
+          <p className="prose-quiet mt-1">Your logged Anniversary Edition games</p>
         </div>
         <div className="flex gap-2">
           <Link href="/campaigns/import" className="btn">
@@ -49,6 +49,7 @@ export default async function CampaignsPage() {
                 <Link
                   href={`/campaigns/${c.id}`}
                   className="panel p-4 hover:border-accent transition-colors block"
+                  style={{ borderTop: `2px solid ${isAxis ? "var(--axis)" : "var(--allies)"}` }}
                 >
                   <div className="flex items-center justify-between pr-7">
                     <span
@@ -57,25 +58,24 @@ export default async function CampaignsPage() {
                     >
                       {c.side}
                     </span>
-                    <span className="label">{c.status}</span>
+                    <span className="label" style={{ color: c.status === "ACTIVE" ? "var(--good)" : undefined }}>
+                      {c.status}
+                    </span>
                   </div>
-                  <h2 className="text-lg font-semibold mt-1">{c.name}</h2>
-                  <p className="label mt-1">
+                  <h2 className="display text-xl mt-1.5">{c.name}</h2>
+                  <p className="prose-quiet mt-1">
                     {c.players.length > 0
                       ? `${c.players.length} player${c.players.length > 1 ? "s" : ""} · `
                       : c.opponent
                         ? `vs ${c.opponent} · `
                         : ""}
                     Round {round}
+                    {c.players.length > 0 && (
+                      <> · {c.players.map((p) => p.name).join(", ")}</>
+                    )}
                   </p>
-                  {c.players.length > 0 && (
-                    <p className="label mt-1 truncate">
-                      {c.players.map((p) => p.name).join(", ")}
-                    </p>
-                  )}
                   <p className="label mt-3">
-                    {c.scenario === "Y1941" ? "1941 Scenario" : "1942 Scenario"} ·{" "}
-                    Goal {c.victoryCityGoal} VC · {c.trackingMode}
+                    {c.scenario === "Y1941" ? "1941" : "1942"} · {c.victoryCityGoal} VC goal · {c.trackingMode.toLowerCase()}
                   </p>
                 </Link>
               </div>

@@ -60,7 +60,7 @@ export default async function BattlePage({
         <Link href="/campaigns" className="label hover:text-foreground">
           ← Campaigns
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight mt-1">{campaign.name}</h1>
+        <h1 className="mt-1">{campaign.name}</h1>
         <p className="label mt-1">
           Battle Simulator — resolve an Anniversary Edition battle with animated dice
         </p>

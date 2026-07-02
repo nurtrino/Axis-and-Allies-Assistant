@@ -129,56 +129,71 @@ export default function CampaignBattle({
         </div>
       )}
 
-      <div className="panel p-3 flex flex-wrap items-end gap-4">
-        <div>
-          <label className="label block mb-1">Attacking country</label>
-          <select className="field" value={attackerNation} onChange={(e) => setAttackerNation(e.target.value)}>
-            {powers.map((p) => (
-              <option key={p.key} value={p.key}>{p.name}</option>
-            ))}
-          </select>
+      <div className="panel doc-corners">
+        <div className="panel-header">
+          <span className="doc-no">Operation orders</span>
+          <span className="display text-lg">
+            <span style={{ color: powers.find((p) => p.key === attackerNation)?.color }}>
+              {nameOf(attackerNation)}
+            </span>
+            <span className="mx-2" style={{ color: "var(--faint)" }}>vs</span>
+            <span style={{ color: powers.find((p) => p.key === defenderNation)?.color }}>
+              {nameOf(defenderNation)}
+            </span>
+            {territory ? <span className="prose-quiet text-sm"> · {territory}</span> : null}
+          </span>
         </div>
-        <div>
-          <label className="label block mb-1">Defending country</label>
-          <select className="field" value={defenderNation} onChange={(e) => setDefenderNation(e.target.value)}>
-            {powers.map((p) => (
-              <option key={p.key} value={p.key}>{p.name}</option>
-            ))}
-          </select>
+        <div className="p-4 flex flex-wrap items-end gap-4">
+          <div>
+            <label className="label block mb-1">Attacking country</label>
+            <select className="field" value={attackerNation} onChange={(e) => setAttackerNation(e.target.value)}>
+              {powers.map((p) => (
+                <option key={p.key} value={p.key}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label block mb-1">Defending country</label>
+            <select className="field" value={defenderNation} onChange={(e) => setDefenderNation(e.target.value)}>
+              {powers.map((p) => (
+                <option key={p.key} value={p.key}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label block mb-1">Round</label>
+            <select className="field" value={roundNumber} onChange={(e) => setRoundNumber(Number(e.target.value))}>
+              {rounds.map((n) => (
+                <option key={n} value={n}>Round {n}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label block mb-1">Territory (optional)</label>
+            <input
+              className="field"
+              type="text"
+              placeholder="e.g. Kwangtung"
+              value={territory}
+              onChange={(e) => setTerritory(e.target.value)}
+              style={{ width: 160 }}
+            />
+          </div>
+          <div>
+            <label className="label block mb-1">Territory IPC</label>
+            <input
+              className="field stat text-right"
+              type="number"
+              min={0}
+              value={territoryIpc}
+              onChange={(e) => setTerritoryIpc(Math.max(0, parseInt(e.target.value, 10) || 0))}
+              style={{ width: 72 }}
+            />
+          </div>
+          <p className="prose-quiet flex-1 min-w-[12rem]">
+            If the attacker captures the territory, its IPC value transfers between nations automatically.
+          </p>
         </div>
-        <div>
-          <label className="label block mb-1">Round</label>
-          <select className="field" value={roundNumber} onChange={(e) => setRoundNumber(Number(e.target.value))}>
-            {rounds.map((n) => (
-              <option key={n} value={n}>Round {n}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label block mb-1">Territory (optional)</label>
-          <input
-            className="field"
-            type="text"
-            placeholder="e.g. Kwangtung"
-            value={territory}
-            onChange={(e) => setTerritory(e.target.value)}
-            style={{ width: 160 }}
-          />
-        </div>
-        <div>
-          <label className="label block mb-1">Territory IPC</label>
-          <input
-            className="field stat text-right"
-            type="number"
-            min={0}
-            value={territoryIpc}
-            onChange={(e) => setTerritoryIpc(Math.max(0, parseInt(e.target.value, 10) || 0))}
-            style={{ width: 72 }}
-          />
-        </div>
-        <p className="label flex-1 min-w-[12rem]">
-          If the attacker captures the territory, its IPC value is transferred between nations automatically.
-        </p>
       </div>
 
       {logged && (

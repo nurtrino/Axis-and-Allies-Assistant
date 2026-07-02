@@ -64,7 +64,7 @@ export default function BattleSimDemo() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Battle Simulator — Demo</h1>
+        <h1 >Battle Simulator — Demo</h1>
         <p className="label mt-1">
           Standalone 3D scene (no database). Each volley, only units that score
           a hit fire — those shots destroy enemy units.

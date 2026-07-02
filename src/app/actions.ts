@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { POWERS, SCENARIO_START_INCOME, UNITS_BY_KEY } from "@/lib/anniversary.config";
 import { advance, startPhase } from "@/lib/turn";
+import { RESEARCH_DIE_COST, TECHS_BY_KEY, chartTechs } from "@/lib/research";
 
 export interface IncomeEntryInput {
   nation: string;
@@ -117,6 +118,8 @@ export interface CreateCampaignInput {
   trackingMode: string;
   victoryCityGoal: number;
   includeResearch: boolean;
+  /** "DECLARE_THEN_FIGHT" | "FIGHT_EACH" — how combat moves flow into battles. */
+  combatResolution: string;
   players: NewCampaignPlayer[];
 }
 
@@ -140,6 +143,10 @@ export async function createCampaignWithPlayers(input: CreateCampaignInput) {
       trackingMode: input.trackingMode,
       victoryCityGoal: input.victoryCityGoal,
       includeResearch: input.includeResearch,
+      combatResolution: input.combatResolution || "DECLARE_THEN_FIGHT",
+      // Start the first player on their first phase — R&D when research is on,
+      // otherwise Purchase.
+      activePhase: startPhase(input.includeResearch),
     },
   });
 
@@ -166,7 +173,7 @@ export async function createCampaignWithPlayers(input: CreateCampaignInput) {
   await seedNationStates(campaign.id, input.scenario);
 
   revalidatePath("/campaigns");
-  redirect(`/campaigns/${campaign.id}`);
+  redirect(`/campaigns/${campaign.id}/turn`);
 }
 
 // ───────────────────────────── Import / Load ────────────────────────────────
@@ -875,6 +882,89 @@ export async function mobilizeUnits(input: { campaignId: string; nation: string 
     await tx.pendingUnit.deleteMany({ where: { nationStateId: state.id } });
   });
 
+  revalidateTurn(input.campaignId);
+}
+
+/**
+ * Phase 1 — R&D, step 1. Buy research dice (5 IPC each) and roll them
+ * server-side. Returns the faces; each 6 is a breakthrough the player then
+ * cashes in via rollBreakthrough (picking a chart per success).
+ */
+export async function rollResearchDice(input: {
+  campaignId: string;
+  nation: string;
+  dice: number;
+}): Promise<{ rolls: number[]; successes: number }> {
+  const dice = Math.max(1, Math.min(12, Math.round(input.dice)));
+  const cost = dice * RESEARCH_DIE_COST;
+  const state = await prisma.nationState.findUnique({
+    where: { campaignId_nation: { campaignId: input.campaignId, nation: input.nation } },
+  });
+  if (!state) throw new Error("Nation state not found.");
+  if (state.ipc < cost) {
+    throw new Error(`Not enough IPC — ${dice} research dice cost ${cost} IPC.`);
+  }
+  await prisma.nationState.update({
+    where: { id: state.id },
+    data: { ipc: { decrement: cost } },
+  });
+  const rolls = Array.from({ length: dice }, () => 1 + Math.floor(Math.random() * 6));
+  revalidateTurn(input.campaignId);
+  return { rolls, successes: rolls.filter((r) => r === 6).length };
+}
+
+/**
+ * Phase 1 — R&D, step 2. Cash a breakthrough on a chart: roll a d6 for the
+ * tech, re-rolling any the power already owns (per the rules), record it, and
+ * return what was won. If the chart is already complete, nothing is rolled.
+ */
+export async function rollBreakthrough(input: {
+  campaignId: string;
+  nation: string;
+  roundNumber: number;
+  chart: 1 | 2;
+}): Promise<{ techKey: string | null; rolls: number[] }> {
+  const owned = await prisma.breakthrough.findMany({
+    where: { campaignId: input.campaignId, nation: input.nation },
+    select: { techKey: true },
+  });
+  const ownedKeys = new Set(owned.map((b) => b.techKey));
+  const open = chartTechs(input.chart).filter((t) => !ownedKeys.has(t.key));
+  if (open.length === 0) return { techKey: null, rolls: [] };
+
+  // Roll until we land on a face the power doesn't own yet (bounded — the
+  // open list is non-empty, so this terminates fast in practice).
+  const rolls: number[] = [];
+  let tech = null;
+  for (let i = 0; i < 40 && !tech; i++) {
+    const face = 1 + Math.floor(Math.random() * 6);
+    rolls.push(face);
+    tech = open.find((t) => t.face === face) ?? null;
+  }
+  tech ??= open[0]; // statistical safety net
+
+  await prisma.breakthrough.create({
+    data: {
+      campaignId: input.campaignId,
+      nation: input.nation,
+      techKey: tech.key,
+      roundNumber: input.roundNumber,
+    },
+  });
+  revalidateTurn(input.campaignId);
+  return { techKey: tech.key, rolls };
+}
+
+/** Remove a recorded breakthrough (mis-click / manual correction). */
+export async function removeBreakthrough(input: {
+  campaignId: string;
+  nation: string;
+  techKey: string;
+}) {
+  if (!TECHS_BY_KEY[input.techKey]) throw new Error("Unknown tech.");
+  await prisma.breakthrough.deleteMany({
+    where: { campaignId: input.campaignId, nation: input.nation, techKey: input.techKey },
+  });
   revalidateTurn(input.campaignId);
 }
 

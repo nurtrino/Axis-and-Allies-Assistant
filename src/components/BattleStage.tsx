@@ -101,48 +101,91 @@ function UnitTally({ stack, lost = false }: { stack: Stack; lost?: boolean }) {
 
 function ForceBuilder({
   side,
+  name,
   stack,
   onChange,
 }: {
   side: Side;
+  name?: string;
   stack: Stack;
   onChange: (k: string, delta: number) => void;
 }) {
   const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
   return (
-    <div className="panel p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="font-semibold uppercase tracking-wider text-sm" style={{ color: tint }}>
-          {side === "attacker" ? "⚔ Attacker" : "🛡 Defender"}
-        </span>
-        <span className="label">
-          {totalUnits(stack)} units · {ipcValue(stack)} IPC
+    <div className="panel overflow-hidden">
+      <div
+        className="panel-header"
+        style={{ borderTop: `2px solid ${tint}`, borderRadius: "3px 3px 0 0" }}
+      >
+        <div className="flex items-baseline gap-2.5 min-w-0">
+          <span className="doc-no shrink-0">{side === "attacker" ? "Attacker" : "Defender"}</span>
+          <span className="display text-lg truncate" style={{ color: tint }}>
+            {name || (side === "attacker" ? "Attacking Force" : "Defending Force")}
+          </span>
+        </div>
+        <span className="stat text-sm shrink-0">
+          {totalUnits(stack)} <span style={{ color: "var(--faint)" }}>units</span>{" "}
+          {ipcValue(stack)} <span style={{ color: "var(--faint)" }}>IPC</span>
         </span>
       </div>
-      <div className="grid gap-1.5">
+      <div className="grid gap-1 p-3">
         {SELECTABLE.map((u) => {
           const n = stack[u.key] ?? 0;
           return (
             <div
               key={u.key}
-              className="flex items-center gap-2 rounded px-2 py-1"
-              style={{ background: n > 0 ? "color-mix(in srgb, " + tint + " 12%, transparent)" : undefined }}
+              className="flex items-center gap-2 rounded px-2 py-[3px]"
+              style={{ background: n > 0 ? "color-mix(in srgb, " + tint + " 11%, transparent)" : undefined }}
             >
-              <span style={{ color: n > 0 ? tint : "var(--muted)" }} className="shrink-0">
-                <UnitIcon unitKey={u.key} size={26} title={u.name} />
+              <span style={{ color: n > 0 ? tint : "var(--faint)" }} className="shrink-0">
+                <UnitIcon unitKey={u.key} size={24} title={u.name} />
               </span>
-              <span className="text-sm flex-1 truncate">{u.name}</span>
-              <span className="label hidden sm:inline">
+              <span className="text-sm flex-1 truncate" style={{ color: n > 0 ? "var(--foreground)" : "var(--muted)" }}>
+                {u.name}
+              </span>
+              <span
+                className="stat hidden sm:inline text-[11px] rounded px-1"
+                style={{ color: "var(--faint)", border: "1px solid var(--border)" }}
+                title={side === "attacker" ? `attacks on ${u.attack} or less` : `defends on ${u.defense} or less`}
+              >
                 {side === "attacker" ? `A${u.attack}` : `D${u.defense}`}
               </span>
               <div className="flex items-center gap-1">
-                <button className="btn px-2 py-0.5" onClick={() => onChange(u.key, -1)} disabled={n === 0} aria-label={`Remove ${u.name}`}>−</button>
+                <button className="btn px-2 py-0" onClick={() => onChange(u.key, -1)} disabled={n === 0} aria-label={`Remove ${u.name}`}>−</button>
                 <span className="stat w-6 text-center">{n}</span>
-                <button className="btn px-2 py-0.5" onClick={() => onChange(u.key, 1)} aria-label={`Add ${u.name}`}>+</button>
+                <button className="btn px-2 py-0" onClick={() => onChange(u.key, 1)} aria-label={`Add ${u.name}`}>+</button>
               </div>
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/** Relative committed-IPC bar — fills as forces muster, split at the balance. */
+function StrengthBar({ attacker, defender }: { attacker: Stack; defender: Stack }) {
+  const a = ipcValue(attacker);
+  const d = ipcValue(defender);
+  const total = a + d;
+  const pct = total === 0 ? 50 : Math.round((a / total) * 100);
+  return (
+    <div className="panel px-4 py-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="label" style={{ color: ATTACKER_TINT }}>Attack strength {a} IPC</span>
+        <span className="label">force balance</span>
+        <span className="label" style={{ color: DEFENDER_TINT }}>{d} IPC defense</span>
+      </div>
+      <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
+        <div
+          className="absolute inset-y-0 left-0 transition-all duration-300"
+          style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${ATTACKER_TINT}, ${ATTACKER_TINT}cc)` }}
+        />
+        <div
+          className="absolute inset-y-0 right-0 transition-all duration-300"
+          style={{ width: `${100 - pct}%`, background: `linear-gradient(90deg, ${DEFENDER_TINT}cc, ${DEFENDER_TINT})` }}
+        />
+        <div className="absolute inset-y-0" style={{ left: `${pct}%`, width: 2, background: "var(--background)" }} />
       </div>
     </div>
   );
@@ -325,7 +368,7 @@ export default function BattleStage({
   // Dice-roll sound effect.
   useEffect(() => {
     const a = new Audio("/sounds/dice-roll.mp3");
-    a.volume = 0.55;
+    a.volume = 0.38;
     audioRef.current = a;
   }, []);
 
@@ -499,7 +542,7 @@ export default function BattleStage({
       // doesn't turn into noise). Deterministic — plays even on the final hit.
       hitDice.slice(0, 14).forEach((d, i) => {
         const snd = fireSoundFor(d.key);
-        window.setTimeout(() => playSound(snd, 0.4), i * 90);
+        window.setTimeout(() => playSound(snd, 0.28), i * 90);
       });
       setState(resolveRoll(state, values));
     } finally {
@@ -532,12 +575,17 @@ export default function BattleStage({
   // ── Unified layout: the dice stage stays mounted across setup & battle. ──
   return (
     <div className="space-y-4">
-      {/* Setup: force builders */}
+      {/* Setup: force builders + live force balance */}
       {mode === "setup" && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <ForceBuilder side="attacker" stack={attackerStack} onChange={(k, d) => changeStack("attacker", k, d)} />
-          <ForceBuilder side="defender" stack={defenderStack} onChange={(k, d) => changeStack("defender", k, d)} />
-        </div>
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            <ForceBuilder side="attacker" name={attackerName} stack={attackerStack} onChange={(k, d) => changeStack("attacker", k, d)} />
+            <ForceBuilder side="defender" name={defenderName} stack={defenderStack} onChange={(k, d) => changeStack("defender", k, d)} />
+          </div>
+          {(totalUnits(attackerStack) > 0 || totalUnits(defenderStack) > 0) && (
+            <StrengthBar attacker={attackerStack} defender={defenderStack} />
+          )}
+        </>
       )}
 
       {/* Battle view: 3D battlefield + dice side by side so both stay visible. */}
@@ -590,7 +638,7 @@ export default function BattleStage({
         {hitFlash && (
           <div
             key={hitFlash.key}
-            className="hit-flash absolute left-1/2 top-1/2 pointer-events-none font-extrabold"
+            className="hit-flash display absolute left-1/2 top-1/2 pointer-events-none"
             style={{
               color: hitFlash.n === 0
                 ? "var(--muted)"
@@ -630,15 +678,11 @@ export default function BattleStage({
 
       {/* Setup controls */}
       {mode === "setup" && (
-        <div className="panel p-4 space-y-3">
+        <div className="panel doc-corners p-4 space-y-3">
           {forceError && (
             <div
               className="text-sm rounded px-3 py-2"
-              style={{
-                background: "rgba(224,121,95,0.16)",
-                color: "#f4cabd",
-                border: "1px solid rgba(224,121,95,0.6)",
-              }}
+              style={{ background: "var(--bad-bg)", color: "var(--bad)", border: "1px solid var(--bad)" }}
             >
               ⚠ {forceError}
             </div>
@@ -647,14 +691,15 @@ export default function BattleStage({
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input type="checkbox" checked={amphibious} onChange={(e) => setAmphibious(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
               <span className="text-sm">Amphibious assault</span>
-              <span className="label">— attacking battleships &amp; cruisers bombard first</span>
+              <span className="prose-quiet">— attacking battleships &amp; cruisers bombard first</span>
             </label>
             <button
-              className="btn btn-primary"
+              className="btn btn-primary display text-base px-6 py-2.5"
+              style={{ letterSpacing: "0.08em" }}
               onClick={begin}
               disabled={totalUnits(attackerStack) === 0 || !!forceError}
             >
-              ⚔ Begin Battle
+              Commence Battle ▸
             </button>
           </div>
         </div>
@@ -662,18 +707,21 @@ export default function BattleStage({
 
       {/* Current step / controls */}
       {mode === "battle" && step && (
-        <div className="panel p-4">
+        <div
+          className="panel p-4"
+          style={{ borderLeft: `3px solid ${step.side === "defender" ? DEFENDER_TINT : ATTACKER_TINT}` }}
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-semibold" style={{ color: step.side === "defender" ? DEFENDER_TINT : ATTACKER_TINT }}>
+              <div className="display text-lg" style={{ color: step.side === "defender" ? DEFENDER_TINT : ATTACKER_TINT }}>
                 {step.title}
               </div>
-              <p className="label mt-1 max-w-xl">{step.explanation}</p>
+              <p className="prose-quiet mt-0.5 max-w-xl">{step.explanation}</p>
             </div>
             {step.decision === "retreat" ? (
               <div className="flex gap-2 shrink-0">
-                <button className="btn" onClick={() => retreat(true)}>Retreat</button>
-                <button className="btn btn-primary" onClick={() => retreat(false)}>Press the Attack →</button>
+                <button className="btn" onClick={() => retreat(true)}>Retreat ◂</button>
+                <button className="btn btn-primary" onClick={() => retreat(false)}>Press the Attack ▸</button>
               </div>
             ) : (
               <div className="flex gap-2 shrink-0">
@@ -683,11 +731,11 @@ export default function BattleStage({
                   </button>
                 )}
                 <button className="btn btn-primary" onClick={rollStep} disabled={rolling || !diceReady}>
-                  🎲 {rolling
+                  {rolling
                     ? "Rolling…"
                     : step.canSubmerge
-                      ? `Surprise Strike (${step.dice.length})`
-                      : `Roll ${step.dice.length} dice`}
+                      ? `Surprise Strike — ${step.dice.length} dice`
+                      : `Roll ${step.dice.length} ${step.dice.length === 1 ? "die" : "dice"} ▸`}
                 </button>
               </div>
             )}
@@ -695,61 +743,68 @@ export default function BattleStage({
         </div>
       )}
 
-      {/* Outcome */}
+      {/* After-action report */}
       {summary && (
-        <div className="panel p-5">
-          <div className="text-lg font-semibold" style={{ color: STATUS_COLOR[summary.status] }}>
-            {statusLine(summary.status, attackerName, defenderName, territoryName)}
+        <section className="panel doc-corners">
+          <div className="panel-header">
+            <div className="flex items-baseline gap-3 min-w-0">
+              <span className="doc-no shrink-0">After-Action Report</span>
+              <h2 className="display text-xl truncate" style={{ color: STATUS_COLOR[summary.status] }}>
+                {statusLine(summary.status, attackerName, defenderName, territoryName)}
+              </h2>
+            </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-            <div><div className="label">Rounds</div><div className="stat text-xl">{summary.rounds}</div></div>
-            <div><div className="label">Attacker IPC value lost</div><div className="stat text-xl" style={{ color: ATTACKER_TINT }}>{summary.attackerIpcLost}</div></div>
-            <div><div className="label">Defender IPC value lost</div><div className="stat text-xl" style={{ color: DEFENDER_TINT }}>{summary.defenderIpcLost}</div></div>
-            <div><div className="label">Survivors</div><div className="stat text-xl">{totalUnits(summary.attackerSurvivors)} v {totalUnits(summary.defenderSurvivors)}</div></div>
-          </div>
+          <div className="p-5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div><div className="label">Combat rounds</div><div className="stat text-2xl">{summary.rounds}</div></div>
+              <div><div className="label">{attackerName} losses</div><div className="stat text-2xl" style={{ color: ATTACKER_TINT }}>{summary.attackerIpcLost} <span className="text-sm" style={{ color: "var(--faint)" }}>IPC</span></div></div>
+              <div><div className="label">{defenderName} losses</div><div className="stat text-2xl" style={{ color: DEFENDER_TINT }}>{summary.defenderIpcLost} <span className="text-sm" style={{ color: "var(--faint)" }}>IPC</span></div></div>
+              <div><div className="label">Survivors</div><div className="stat text-2xl">{totalUnits(summary.attackerSurvivors)} <span className="text-sm" style={{ color: "var(--faint)" }}>vs</span> {totalUnits(summary.defenderSurvivors)}</div></div>
+            </div>
 
-          {/* Clear per-side roster: what stayed vs what was lost. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-            {(["attacker", "defender"] as const).map((side) => {
-              const initial = side === "attacker" ? attackerStack : defenderStack;
-              const survivors = side === "attacker" ? summary.attackerSurvivors : summary.defenderSurvivors;
-              const lost = lossStack(initial, survivors);
-              const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
-              const name = side === "attacker" ? attackerName : defenderName;
-              return (
-                <div
-                  key={side}
-                  className="rounded-lg p-3"
-                  style={{ border: `1px solid ${tint}55`, background: `color-mix(in srgb, ${tint} 8%, transparent)` }}
-                >
-                  <div className="font-semibold uppercase tracking-wider text-sm" style={{ color: tint }}>
-                    {side === "attacker" ? "⚔ " : "🛡 "}{name}
+            {/* Per-side roster: what stayed vs what was lost. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+              {(["attacker", "defender"] as const).map((side) => {
+                const initial = side === "attacker" ? attackerStack : defenderStack;
+                const survivors = side === "attacker" ? summary.attackerSurvivors : summary.defenderSurvivors;
+                const lost = lossStack(initial, survivors);
+                const tint = side === "attacker" ? ATTACKER_TINT : DEFENDER_TINT;
+                const name = side === "attacker" ? attackerName : defenderName;
+                return (
+                  <div
+                    key={side}
+                    className="rounded p-3"
+                    style={{ border: `1px solid ${tint}44`, borderTop: `2px solid ${tint}`, background: `color-mix(in srgb, ${tint} 6%, transparent)` }}
+                  >
+                    <div className="display text-base" style={{ color: tint }}>{name}</div>
+                    <div className="label mt-2 mb-1" style={{ color: "var(--good)" }}>Survived</div>
+                    <UnitTally stack={survivors} />
+                    <div className="label mt-3 mb-1">Lost</div>
+                    <UnitTally stack={lost} lost />
                   </div>
-                  <div className="label mt-2 mb-1" style={{ color: "var(--good)" }}>Survived</div>
-                  <UnitTally stack={survivors} />
-                  <div className="label mt-3 mb-1">Lost</div>
-                  <UnitTally stack={lost} lost />
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
 
-          <div className="flex items-center gap-3 mt-4">
-            <button className="btn btn-primary" onClick={reset}>New Battle</button>
-            {onLogResult && (
-              <span className="label" style={{ color: "var(--good)" }}>
-                ✓ Losses recorded for the fighting nations
-              </span>
-            )}
+            <div className="flex items-center gap-3 mt-4">
+              <button className="btn btn-primary" onClick={reset}>New Battle ▸</button>
+              {onLogResult && (
+                <span className="prose-quiet" style={{ color: "var(--good)" }}>
+                  ✓ Losses recorded for the fighting nations
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        </section>
       )}
 
       {/* Battle log */}
       {state && state.log.length > 0 && (
-        <div className="panel p-4">
-          <div className="label mb-1">Battle Log</div>
-          <div className="max-h-80 overflow-y-auto">
+        <div className="panel">
+          <div className="panel-header">
+            <span className="doc-no">Battle log — most recent first</span>
+          </div>
+          <div className="max-h-80 overflow-y-auto p-3">
             {[...state.log].reverse().map((ev, i) => (
               <EventRow key={state.log.length - i} ev={ev} />
             ))}

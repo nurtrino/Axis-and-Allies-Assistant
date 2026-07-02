@@ -1,14 +1,24 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { PHASES, isPhaseEnabled, type Phase } from "@/lib/turn";
+import { PHASES, isPhaseEnabled } from "@/lib/turn";
 import {
   purchaseUnits,
   clearPendingPurchases,
   collectIncome,
   advancePhase,
   goToPhase,
+  mobilizeUnits,
+  rollResearchDice,
+  rollBreakthrough,
+  removeBreakthrough,
 } from "@/app/actions";
+import {
+  RESEARCH_DIE_COST,
+  RESEARCH_TECHS,
+  TECHS_BY_KEY,
+  CHART_NAMES,
+} from "@/lib/research";
 import UnitIcon from "@/components/UnitIcon";
 
 export interface PortalUnit {
@@ -40,11 +50,17 @@ export interface MovementEntry {
   toTerritory: string | null;
   units: Record<string, number>;
 }
+export interface BreakthroughEntry {
+  nation: string;
+  techKey: string;
+  roundNumber: number;
+}
 export interface TurnPortalProps {
   campaignId: string;
   roundNumber: number;
   activePhase: number;
   includeResearch: boolean;
+  combatResolution: string;
   power: PortalPower;
   controller: string | null;
   treasury: number;
@@ -55,6 +71,7 @@ export interface TurnPortalProps {
   powers: PortalPower[];
   combatOrders: CombatOrder[];
   movements: MovementEntry[];
+  breakthroughs: BreakthroughEntry[];
 }
 
 const fmtIpc = (n: number) => `${n} IPC`;
@@ -73,114 +90,314 @@ const prettyStatus = (s: string | null) =>
 
 export default function TurnPortal(props: TurnPortalProps) {
   const phase = PHASES.find((p) => p.n === props.activePhase) ?? PHASES[1];
-  const [pending, start] = useTransition();
+  const [busy, start] = useTransition();
 
   return (
     <div className="space-y-5">
-      <PhaseStepper
-        campaignId={props.campaignId}
-        activePhase={props.activePhase}
-        includeResearch={props.includeResearch}
-        busy={pending}
-        onJump={(n) => {
-          const fd = new FormData();
-          fd.set("campaignId", props.campaignId);
-          fd.set("phase", String(n));
-          start(() => goToPhase(fd));
-        }}
-      />
+      {/* Phase progress track */}
+      <div className="panel px-4 py-4">
+        <div className="phase-track">
+          {PHASES.map((p) => {
+            const enabled = isPhaseEnabled(p, props.includeResearch);
+            const active = p.n === props.activePhase;
+            const done = enabled && p.n < props.activePhase;
+            return (
+              <button
+                key={p.n}
+                type="button"
+                className="phase-node"
+                data-active={active}
+                data-done={done}
+                disabled={!enabled || busy}
+                title={enabled ? p.name : `${p.name} — not used in this game`}
+                onClick={() => {
+                  const fd = new FormData();
+                  fd.set("campaignId", props.campaignId);
+                  fd.set("phase", String(p.n));
+                  start(() => goToPhase(fd));
+                }}
+              >
+                <span className="phase-dot">{done ? "✓" : p.n}</span>
+                <span className="phase-name">{p.short}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-      {/* Active phase panel */}
+      {/* Active phase document */}
+      {phase.key === "research" && <ResearchPanel {...props} />}
       {phase.key === "purchase" && <PurchasePanel {...props} />}
+      {phase.key === "combatmove" && <CombatMovePanel {...props} />}
       {phase.key === "combat" && <ConductCombatPanel {...props} />}
+      {phase.key === "noncombat" && <NoncombatPanel {...props} />}
+      {phase.key === "mobilize" && <MobilizePanel {...props} />}
       {phase.key === "income" && <IncomePanel {...props} />}
-      {!["purchase", "combat", "income"].includes(phase.key) && (
-        <Placeholder phase={phase} />
-      )}
+    </div>
+  );
+}
 
-      {/* Advance control */}
+/* ── Shared phase-card chrome ─────────────────────────────────────────────── */
+
+function PhaseCard({
+  n,
+  title,
+  lede,
+  children,
+  footerNote,
+  campaignId,
+  lastPhase = false,
+  powerName,
+}: {
+  n: number;
+  title: string;
+  lede: string;
+  children?: React.ReactNode;
+  footerNote?: string;
+  campaignId: string;
+  lastPhase?: boolean;
+  powerName: string;
+}) {
+  return (
+    <section className="panel doc-corners">
+      <div className="panel-header">
+        <div className="flex items-baseline gap-3 min-w-0">
+          <span className="doc-no shrink-0">Phase {n} of 7</span>
+          <h2 className="display text-xl truncate">{title}</h2>
+        </div>
+      </div>
+      <div className="p-5 space-y-4">
+        <p className="prose-quiet max-w-3xl">{lede}</p>
+        {children}
+      </div>
       <form
         action={advancePhase}
-        className="flex items-center justify-between panel p-4"
+        className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3.5"
+        style={{ background: "color-mix(in srgb, var(--surface-2) 55%, transparent)" }}
       >
-        <input type="hidden" name="campaignId" value={props.campaignId} />
-        <div className="label">
-          {props.activePhase < 7
-            ? `Finish ${phase.name} →`
-            : `End ${props.power.name}'s turn →`}
-        </div>
+        <input type="hidden" name="campaignId" value={campaignId} />
+        <span className="prose-quiet">
+          {footerNote ??
+            (lastPhase
+              ? `Done? This ends ${powerName}'s turn and hands off to the next power.`
+              : `When ${title.toLowerCase()} is finished, move on.`)}
+        </span>
         <button className="btn btn-primary" type="submit">
-          {props.activePhase < 7 ? "Next Phase ▸" : "End Turn ▸"}
+          {lastPhase ? "End Turn" : "Next Phase"} ▸
         </button>
       </form>
-    </div>
+    </section>
   );
 }
 
-function PhaseStepper({
-  campaignId,
-  activePhase,
-  includeResearch,
-  busy,
-  onJump,
-}: {
-  campaignId: string;
-  activePhase: number;
-  includeResearch: boolean;
-  busy: boolean;
-  onJump: (n: number) => void;
-}) {
-  void campaignId;
+/* ── Phase 1 · Research & Development ─────────────────────────────────────── */
+
+function ResearchPanel(props: TurnPortalProps) {
+  const [diceCount, setDiceCount] = useState(1);
+  const [rolls, setRolls] = useState<number[] | null>(null);
+  const [pendingHits, setPendingHits] = useState(0);
+  const [won, setWon] = useState<string[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, start] = useTransition();
+
+  const maxDice = Math.min(12, Math.floor(props.treasury / RESEARCH_DIE_COST));
+  const mine = props.breakthroughs.filter((b) => b.nation === props.power.key);
+  const mineKeys = new Set(mine.map((b) => b.techKey));
+
+  function buyAndRoll() {
+    setErr(null);
+    start(async () => {
+      try {
+        const res = await rollResearchDice({
+          campaignId: props.campaignId,
+          nation: props.power.key,
+          dice: diceCount,
+        });
+        setRolls(res.rolls);
+        setPendingHits(res.successes);
+        setWon([]);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Roll failed.");
+      }
+    });
+  }
+
+  function cashIn(chart: 1 | 2) {
+    setErr(null);
+    start(async () => {
+      try {
+        const res = await rollBreakthrough({
+          campaignId: props.campaignId,
+          nation: props.power.key,
+          roundNumber: props.roundNumber,
+          chart,
+        });
+        if (res.techKey) setWon((w) => [...w, res.techKey!]);
+        setPendingHits((h) => Math.max(0, h - 1));
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Breakthrough roll failed.");
+      }
+    });
+  }
+
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {PHASES.map((p) => {
-        const enabled = isPhaseEnabled(p, includeResearch);
-        const active = p.n === activePhase;
-        const done = enabled && p.n < activePhase;
-        return (
-          <button
-            key={p.n}
-            type="button"
-            disabled={!enabled || busy}
-            onClick={() => enabled && onJump(p.n)}
-            title={enabled ? p.name : `${p.name} (disabled)`}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono uppercase tracking-wider transition-colors"
-            style={{
-              opacity: enabled ? 1 : 0.35,
-              cursor: enabled ? "pointer" : "not-allowed",
-              border: active
-                ? "1px solid var(--accent)"
-                : "1px solid var(--border)",
-              color: active
-                ? "var(--accent)"
-                : done
-                  ? "var(--good)"
-                  : "var(--muted)",
-              background: active ? "var(--surface-2)" : "transparent",
-            }}
-          >
-            <span style={{ opacity: 0.7 }}>{p.n}</span>
-            {p.short}
-            {!p.implemented && enabled && (
-              <span className="label" style={{ fontSize: 9 }}>
-                soon
+    <PhaseCard
+      n={1}
+      title="Research & Development"
+      lede={`Spend IPC on research dice (${RESEARCH_DIE_COST} IPC each) for a shot at a breakthrough — every 6 earns one. Or skip and bank the IPC for units. Unlocked techs are tracked here so nobody has to remember chart state.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+      footerNote="Rolled (or skipping)? Move on to purchasing."
+    >
+      {/* Buy + roll */}
+      <div className="flex flex-wrap items-end gap-4">
+        <div>
+          <div className="label mb-1.5">Research dice</div>
+          <div className="flex items-center gap-1.5">
+            <button type="button" className="btn px-2.5 py-1" disabled={diceCount <= 1 || busy} onClick={() => setDiceCount((d) => d - 1)}>−</button>
+            <span className="stat w-8 text-center text-lg">{diceCount}</span>
+            <button type="button" className="btn px-2.5 py-1" disabled={diceCount >= maxDice || busy} onClick={() => setDiceCount((d) => d + 1)}>+</button>
+          </div>
+        </div>
+        <div>
+          <div className="label mb-1.5">Cost</div>
+          <div className="stat text-lg">{fmtIpc(diceCount * RESEARCH_DIE_COST)}</div>
+        </div>
+        <div>
+          <div className="label mb-1.5">Treasury</div>
+          <div className="stat text-lg" style={{ color: "var(--accent)" }}>{fmtIpc(props.treasury)}</div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={busy || maxDice < 1 || diceCount > maxDice}
+          onClick={buyAndRoll}
+        >
+          {busy ? "Rolling…" : "Buy & Roll"}
+        </button>
+        {maxDice < 1 && (
+          <span className="prose-quiet">Treasury is below {RESEARCH_DIE_COST} IPC — skip R&D this turn.</span>
+        )}
+      </div>
+
+      {err && <div className="text-sm" style={{ color: "var(--bad)" }}>{err}</div>}
+
+      {/* Roll results */}
+      {rolls && (
+        <div className="space-y-3 rounded border border-border p-3.5" style={{ background: "var(--surface-2)" }}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {rolls.map((r, i) => (
+              <span
+                key={i}
+                className="die-face"
+                style={
+                  r === 6
+                    ? { background: "linear-gradient(180deg, var(--accent-bright), var(--accent))", color: "var(--accent-ink)", boxShadow: "0 0 10px rgba(201,162,39,0.5)" }
+                    : { background: "var(--surface-3)", color: "var(--muted)", border: "1px solid var(--border)" }
+                }
+              >
+                {r}
               </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
+            ))}
+            <span className="prose-quiet ml-2">
+              {pendingHits + won.length > 0
+                ? `${pendingHits + won.length} breakthrough${pendingHits + won.length > 1 ? "s" : ""}!`
+                : "No sixes — the labs come up empty this turn."}
+            </span>
+          </div>
+
+          {pendingHits > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm">Cash in breakthrough — pick a chart:</span>
+              <button type="button" className="btn" disabled={busy} onClick={() => cashIn(1)}>
+                {CHART_NAMES[1]}
+              </button>
+              <button type="button" className="btn" disabled={busy} onClick={() => cashIn(2)}>
+                {CHART_NAMES[2]}
+              </button>
+              <span className="label">{pendingHits} remaining</span>
+            </div>
+          )}
+
+          {won.map((k) => (
+            <div
+              key={k}
+              className="rounded border px-3 py-2 text-sm"
+              style={{ borderColor: "var(--accent-dim)", background: "rgba(201,162,39,0.08)" }}
+            >
+              <span style={{ color: "var(--accent)" }} className="font-semibold">
+                Breakthrough — {TECHS_BY_KEY[k]?.name}
+              </span>
+              <span className="prose-quiet"> · {TECHS_BY_KEY[k]?.effect}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tech ledger */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {([1, 2] as const).map((chart) => (
+          <div key={chart}>
+            <div className="label mb-2">Chart {chart} — {CHART_NAMES[chart]}</div>
+            <div className="space-y-1">
+              {RESEARCH_TECHS.filter((t) => t.chart === chart).map((t) => {
+                const ownedByMe = mineKeys.has(t.key);
+                const others = props.breakthroughs.filter((b) => b.techKey === t.key && b.nation !== props.power.key);
+                return (
+                  <div
+                    key={t.key}
+                    className="flex items-center gap-2 rounded px-2 py-1 text-sm"
+                    style={ownedByMe ? { background: "rgba(201,162,39,0.09)", border: "1px solid var(--accent-dim)" } : { border: "1px solid transparent" }}
+                    title={t.effect}
+                  >
+                    <span className="stat w-4 text-center" style={{ color: "var(--faint)" }}>{t.face}</span>
+                    <span className={ownedByMe ? "font-medium" : ""} style={ownedByMe ? { color: "var(--accent)" } : { color: "var(--muted)" }}>
+                      {t.name}
+                    </span>
+                    <span className="ml-auto flex items-center gap-1">
+                      {others.map((o) => {
+                        const p = props.powers.find((x) => x.key === o.nation);
+                        return (
+                          <span key={o.nation} className="label" style={{ color: p?.color }}>
+                            {p?.name.split(" ")[0] ?? o.nation}
+                          </span>
+                        );
+                      })}
+                      {ownedByMe && (
+                        <button
+                          type="button"
+                          className="label hover:text-foreground"
+                          title="Remove (mis-recorded)"
+                          onClick={() =>
+                            start(() =>
+                              removeBreakthrough({ campaignId: props.campaignId, nation: props.power.key, techKey: t.key }),
+                            )
+                          }
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </PhaseCard>
   );
 }
+
+/* ── Phase 2 · Purchase Units ─────────────────────────────────────────────── */
 
 function PurchasePanel(props: TurnPortalProps) {
   const [qty, setQty] = useState<Record<string, number>>({});
-  const [pending, start] = useTransition();
+  const [busy, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
 
   const orderCost = useMemo(
-    () =>
-      props.units.reduce((s, u) => s + u.cost * (qty[u.key] || 0), 0),
+    () => props.units.reduce((s, u) => s + u.cost * (qty[u.key] || 0), 0),
     [qty, props.units],
   );
   const overspend = orderCost > props.treasury;
@@ -198,11 +415,7 @@ function PurchasePanel(props: TurnPortalProps) {
       .map(([unitType, quantity]) => ({ unitType, quantity }));
     start(async () => {
       try {
-        await purchaseUnits({
-          campaignId: props.campaignId,
-          nation: props.power.key,
-          units,
-        });
+        await purchaseUnits({ campaignId: props.campaignId, nation: props.power.key, units });
         setQty({});
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Purchase failed.");
@@ -210,20 +423,19 @@ function PurchasePanel(props: TurnPortalProps) {
     });
   }
 
-  function clearAll() {
-    start(() =>
-      clearPendingPurchases({ campaignId: props.campaignId, nation: props.power.key }),
-    );
-  }
-
   return (
-    <div className="panel p-5 space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold">Phase 2 — Purchase Units</h2>
-        <div className="stat">
-          Treasury:{" "}
-          <span style={{ color: "var(--accent)" }}>{fmtIpc(props.treasury)}</span>
-        </div>
+    <PhaseCard
+      n={2}
+      title="Purchase Units"
+      lede={`Spend ${props.power.name}'s treasury on new units. Purchases go to the mobilization zone — set the pieces aside; they deploy in Phase 6.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+    >
+      <div className="flex items-center justify-between">
+        <span className="label">Unit orders</span>
+        <span className="stat">
+          Treasury <span style={{ color: "var(--accent)" }}>{fmtIpc(props.treasury)}</span>
+        </span>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -232,7 +444,11 @@ function PurchasePanel(props: TurnPortalProps) {
           return (
             <div
               key={u.key}
-              className="flex items-center gap-2 rounded border border-border p-2"
+              className="flex items-center gap-2 rounded border p-2"
+              style={{
+                borderColor: q > 0 ? "var(--accent-dim)" : "var(--border)",
+                background: q > 0 ? "rgba(201,162,39,0.06)" : "transparent",
+              }}
             >
               <UnitIcon unitKey={u.key} size={28} className="shrink-0" />
               <div className="min-w-0 flex-1">
@@ -240,29 +456,15 @@ function PurchasePanel(props: TurnPortalProps) {
                 <div className="label">{fmtIpc(u.cost)}</div>
               </div>
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="btn px-2 py-0.5"
-                  onClick={() => setQty((s) => ({ ...s, [u.key]: Math.max(0, q - 1) }))}
-                >
-                  −
-                </button>
+                <button type="button" className="btn px-2 py-0.5" onClick={() => setQty((s) => ({ ...s, [u.key]: Math.max(0, q - 1) }))}>−</button>
                 <input
                   type="number"
                   min={0}
                   value={q}
-                  onChange={(e) =>
-                    setQty((s) => ({ ...s, [u.key]: Math.max(0, Number(e.target.value) || 0) }))
-                  }
+                  onChange={(e) => setQty((s) => ({ ...s, [u.key]: Math.max(0, Number(e.target.value) || 0) }))}
                   className="w-12 text-center bg-surface-2 rounded border border-border py-0.5 stat"
                 />
-                <button
-                  type="button"
-                  className="btn px-2 py-0.5"
-                  onClick={() => setQty((s) => ({ ...s, [u.key]: q + 1 }))}
-                >
-                  +
-                </button>
+                <button type="button" className="btn px-2 py-0.5" onClick={() => setQty((s) => ({ ...s, [u.key]: q + 1 }))}>+</button>
               </div>
             </div>
           );
@@ -271,56 +473,37 @@ function PurchasePanel(props: TurnPortalProps) {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
         <div className="stat">
-          Order cost:{" "}
-          <span style={{ color: overspend ? "var(--bad)" : "var(--foreground)" }}>
-            {fmtIpc(orderCost)}
-          </span>
-          <span className="label">
-            {" "}
-            · remaining {fmtIpc(props.treasury - orderCost)}
-          </span>
+          Order cost{" "}
+          <span style={{ color: overspend ? "var(--bad)" : "var(--foreground)" }}>{fmtIpc(orderCost)}</span>
+          <span className="prose-quiet"> · remaining {fmtIpc(props.treasury - orderCost)}</span>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!hasOrder || overspend || pending}
-          onClick={submit}
-        >
-          {pending ? "Buying…" : "Buy Units"}
+        <button type="button" className="btn btn-primary" disabled={!hasOrder || overspend || busy} onClick={submit}>
+          {busy ? "Buying…" : "Buy Units"}
         </button>
       </div>
       {(err || overspend) && (
-        <div className="text-sm" style={{ color: "var(--bad)" }}>
-          {err ?? "Order exceeds available IPC."}
-        </div>
+        <div className="text-sm" style={{ color: "var(--bad)" }}>{err ?? "Order exceeds available IPC."}</div>
       )}
 
-      {/* Pending placement */}
+      {/* Mobilization zone */}
       <div className="border-t border-border pt-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="label">Purchased this turn</span>
+          <span className="label">Mobilization zone — deploys in Phase 6</span>
           {props.pending.length > 0 && (
-            <button
-              type="button"
-              className="label hover:text-foreground"
-              onClick={clearAll}
-              disabled={pending}
-            >
-              ✕ clear & refund {fmtIpc(pendingTotal)}
+            <button type="button" className="label hover:text-foreground" disabled={busy}
+              onClick={() => start(() => clearPendingPurchases({ campaignId: props.campaignId, nation: props.power.key }))}>
+              ✕ clear &amp; refund {fmtIpc(pendingTotal)}
             </button>
           )}
         </div>
         {props.pending.length === 0 ? (
-          <div className="label">Nothing purchased yet this turn.</div>
+          <div className="prose-quiet">Nothing purchased yet this turn.</div>
         ) : (
           <div className="flex flex-wrap gap-2">
             {props.pending.map((p) => {
               const u = props.units.find((x) => x.key === p.unitType);
               return (
-                <span
-                  key={p.unitType}
-                  className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-sm"
-                >
+                <span key={p.unitType} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-sm" style={{ background: "var(--surface-2)" }}>
                   <UnitIcon unitKey={p.unitType} size={20} />
                   {u?.name ?? p.unitType} ×{p.quantity}
                 </span>
@@ -329,71 +512,173 @@ function PurchasePanel(props: TurnPortalProps) {
           </div>
         )}
       </div>
-    </div>
+    </PhaseCard>
   );
 }
 
+/* ── Phase 3 · Combat Move ────────────────────────────────────────────────── */
+
+function CombatMovePanel(props: TurnPortalProps) {
+  const declareThenFight = props.combatResolution !== "FIGHT_EACH";
+  return (
+    <PhaseCard
+      n={3}
+      title="Combat Move"
+      lede={`Move ${props.power.name}'s attacking units into the territories you intend to contest — including amphibious assaults and the aircraft flying in support.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+      footerNote="Attackers in position? On to the battles."
+    >
+      <div
+        className="text-sm rounded border px-3.5 py-2.5"
+        style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}
+      >
+        {declareThenFight ? (
+          <>This game <span className="font-semibold">declares all combat moves first</span>, then fights every battle together in the next phase.</>
+        ) : (
+          <>This game <span className="font-semibold">fights each battle as it&apos;s declared</span> — set up a move, resolve it in the simulator, then come back for the next.</>
+        )}
+      </div>
+      {!declareThenFight && (
+        <a href={`/campaigns/${props.campaignId}/battle`} className="btn btn-primary">
+          Open Battle Simulator ▸
+        </a>
+      )}
+    </PhaseCard>
+  );
+}
+
+/* ── Phase 4 · Conduct Combat ─────────────────────────────────────────────── */
+
 function ConductCombatPanel(props: TurnPortalProps) {
   const resolved = props.combatOrders.filter((o) => o.status === "RESOLVED");
-
   return (
-    <div className="panel p-5 space-y-4">
-      <h2 className="text-lg font-semibold">Phase 4 — Conduct Combat</h2>
-      <p className="label">
-        Fight {props.power.name}&apos;s battles in the 3D Battle Simulator —
-        everyone watches the dice. Losses and territory IPC are recorded
-        automatically when each battle finishes.
-      </p>
-
+    <PhaseCard
+      n={4}
+      title="Conduct Combat"
+      lede={`Fight ${props.power.name}'s battles in the simulator — everyone watches the dice. Losses and captured-territory IPC are recorded automatically as each battle ends.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+      footerNote="All battles resolved? Continue."
+    >
       <a href={`/campaigns/${props.campaignId}/battle`} className="btn btn-primary">
         ⚔ Open Battle Simulator ▸
       </a>
 
       {resolved.length > 0 && (
         <div className="border-t border-border pt-3">
-          <div className="label mb-1">Resolved this campaign</div>
+          <div className="label mb-1.5">Battle record</div>
           {resolved.map((o) => (
             <div key={o.id} className="flex flex-wrap items-center gap-2 text-sm py-1">
               <span style={{ color: "var(--good)" }}>✓</span>
-              → {props.powers.find((p) => p.key === o.defenderNation)?.name ?? o.defenderNation}
-              {o.territory ? ` · ${o.territory}` : ""}
+              vs {props.powers.find((p) => p.key === o.defenderNation)?.name ?? o.defenderNation}
+              {o.territory ? <span className="prose-quiet">· {o.territory}</span> : null}
               <span className="label">{prettyStatus(o.resultStatus)}</span>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </PhaseCard>
   );
 }
 
-function IncomePanel(props: TurnPortalProps) {
-  const [amount, setAmount] = useState(props.defaultIncome);
-  const [pending, start] = useTransition();
-  const [done, setDone] = useState(false);
+/* ── Phase 5 · Noncombat Move ─────────────────────────────────────────────── */
 
-  function collect() {
-    start(async () => {
-      await collectIncome({
-        campaignId: props.campaignId,
-        nation: props.power.key,
-        roundNumber: props.roundNumber,
-        amount,
-      });
-      setDone(true);
-    });
-  }
+function NoncombatPanel(props: TurnPortalProps) {
+  const [show, setShow] = useState(false);
+  return (
+    <PhaseCard
+      n={5}
+      title="Noncombat Move"
+      lede={`Reposition units that didn't fight: reinforce the front, shift fleets, and land every aircraft that flew this turn.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+      footerNote="Repositioned and aircraft landed? Continue."
+    >
+      <button type="button" className="btn" onClick={() => setShow((s) => !s)}>
+        {show ? "Hide" : "What counts as a noncombat move?"}
+      </button>
+      {show && (
+        <div className="text-sm rounded border border-border px-3.5 py-3 space-y-1.5" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+          <p>· Move any unit that was <span style={{ color: "var(--foreground)" }}>not in combat</span> this turn, up to its full move.</p>
+          <p>· Every aircraft that flew <span style={{ color: "var(--foreground)" }}>must land now</span> — within range, on friendly territory or a carrier.</p>
+          <p>· You may not enter enemy-held territory in this phase — that would be a combat move.</p>
+          <p>· Use it to consolidate lines and bring reinforcements forward.</p>
+        </div>
+      )}
+    </PhaseCard>
+  );
+}
+
+/* ── Phase 6 · Mobilize New Units ─────────────────────────────────────────── */
+
+function MobilizePanel(props: TurnPortalProps) {
+  const [busy, start] = useTransition();
+  const [done, setDone] = useState(false);
+  const hasPending = props.pending.length > 0;
 
   return (
-    <div className="panel p-5 space-y-4">
-      <h2 className="text-lg font-semibold">Phase 7 — Collect Income</h2>
-      <p className="label">
-        Add this turn&apos;s territory income to {props.power.name}&apos;s
-        treasury. Defaults to the production-chart figure — adjust if territories
-        changed hands this round.
-      </p>
-      <div className="flex flex-wrap items-end gap-4">
+    <PhaseCard
+      n={6}
+      title="Mobilize New Units"
+      lede={`Place this turn's purchases on the board at ${props.power.name}'s industrial complexes (a complex can host as many units as its territory's IPC value), then confirm to log them into the force pool.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+      footerNote="Units on the board? One step left."
+    >
+      {hasPending ? (
+        <div className="flex flex-wrap gap-2">
+          {props.pending.map((p) => {
+            const u = props.units.find((x) => x.key === p.unitType);
+            return (
+              <span key={p.unitType} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-sm" style={{ background: "var(--surface-2)" }}>
+                <UnitIcon unitKey={p.unitType} size={20} />
+                {u?.name ?? p.unitType} ×{p.quantity}
+              </span>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="prose-quiet">
+          {done ? "Units placed — the mobilization zone is clear ✓" : "The mobilization zone is empty this turn."}
+        </div>
+      )}
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={!hasPending || busy}
+        onClick={() =>
+          start(async () => {
+            await mobilizeUnits({ campaignId: props.campaignId, nation: props.power.key });
+            setDone(true);
+          })
+        }
+      >
+        {busy ? "Placing…" : "Place Units on the Board ▸"}
+      </button>
+    </PhaseCard>
+  );
+}
+
+/* ── Phase 7 · Collect Income ─────────────────────────────────────────────── */
+
+function IncomePanel(props: TurnPortalProps) {
+  const [amount, setAmount] = useState(props.defaultIncome);
+  const [busy, start] = useTransition();
+  const [done, setDone] = useState(false);
+
+  return (
+    <PhaseCard
+      n={7}
+      title="Collect Income"
+      lede={`Add this turn's territory income to ${props.power.name}'s treasury. The default comes from the production chart — adjust it if territories changed hands this round.`}
+      campaignId={props.campaignId}
+      powerName={props.power.name}
+      lastPhase
+    >
+      <div className="flex flex-wrap items-end gap-5">
         <div>
-          <div className="label mb-1">Income to collect</div>
+          <div className="label mb-1.5">Income to collect</div>
           <input
             type="number"
             min={0}
@@ -403,38 +688,29 @@ function IncomePanel(props: TurnPortalProps) {
           />
         </div>
         <div>
-          <div className="label mb-1">Treasury after</div>
-          <div className="stat text-lg" style={{ color: "var(--accent)" }}>
-            {fmtIpc(props.treasury + amount)}
-          </div>
+          <div className="label mb-1.5">Treasury after</div>
+          <div className="stat text-lg" style={{ color: "var(--accent)" }}>{fmtIpc(props.treasury + amount)}</div>
         </div>
         <button
           type="button"
           className="btn btn-primary"
-          onClick={collect}
-          disabled={pending}
+          disabled={busy}
+          onClick={() =>
+            start(async () => {
+              await collectIncome({
+                campaignId: props.campaignId,
+                nation: props.power.key,
+                roundNumber: props.roundNumber,
+                amount,
+              });
+              setDone(true);
+            })
+          }
         >
-          {pending ? "Collecting…" : done ? "Collected ✓ — re-apply" : "Collect Income"}
+          {busy ? "Collecting…" : done ? "Collected ✓ — re-apply" : "Collect Income"}
         </button>
       </div>
-      <div className="label">
-        Current treasury: {fmtIpc(props.treasury)}
-      </div>
-    </div>
-  );
-}
-
-function Placeholder({ phase }: { phase: Phase }) {
-  return (
-    <div className="panel p-8 text-center space-y-2">
-      <h2 className="text-lg font-semibold">
-        Phase {phase.n} — {phase.name}
-      </h2>
-      <p className="label">
-        {phase.key === "research"
-          ? "Research & Development is an optional rule — coming in a later update."
-          : "This phase's guided entry is coming soon. For now, play it on the board and advance when done."}
-      </p>
-    </div>
+      <div className="prose-quiet">Current treasury: {fmtIpc(props.treasury)}</div>
+    </PhaseCard>
   );
 }

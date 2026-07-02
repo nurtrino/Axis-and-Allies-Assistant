@@ -41,6 +41,7 @@ export default function PlayerSetup() {
   const [trackingMode, setTrackingMode] = useState("DETAILED");
   const [victoryCityGoal, setVictoryCityGoal] = useState(15);
   const [includeResearch, setIncludeResearch] = useState(true);
+  const [combatResolution, setCombatResolution] = useState("DECLARE_THEN_FIGHT");
 
   const [players, setPlayers] = useState<string[]>(["", ""]);
   const [assign, setAssign] = useState<Record<string, number>>(autoAssign(2));
@@ -111,6 +112,7 @@ export default function PlayerSetup() {
           trackingMode,
           victoryCityGoal,
           includeResearch,
+          combatResolution,
           players: payloadPlayers,
         });
       } catch (e) {
@@ -129,7 +131,7 @@ export default function PlayerSetup() {
       <Link href="/campaigns" className="label hover:text-foreground">
         ← Campaigns
       </Link>
-      <h1 className="text-2xl font-semibold tracking-tight mt-2 mb-1">
+      <h1 className="mt-2 mb-1">
         New Campaign
       </h1>
       <p className="label mb-6">
@@ -185,6 +187,18 @@ export default function PlayerSetup() {
             <span className="text-sm">Include Research &amp; Development</span>
             <span className="label">— shows the R&amp;D breakthrough columns on the Production board</span>
           </label>
+          <div>
+            <label className="label block mb-1.5">Combat Resolution</label>
+            <select
+              className="field"
+              value={combatResolution}
+              onChange={(e) => setCombatResolution(e.target.value)}
+            >
+              <option value="DECLARE_THEN_FIGHT">Declare all combat moves, then fight the battles</option>
+              <option value="FIGHT_EACH">Fight each battle as you declare its move</option>
+            </select>
+            <span className="label">— how the Turn Portal flows from combat moves into battles</span>
+          </div>
         </div>
 
         {/* Players */}

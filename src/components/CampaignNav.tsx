@@ -1,11 +1,11 @@
 import Link from "next/link";
 
 const TABS = [
-  { key: "war-room", label: "War Room", href: (id: string) => `/campaigns/${id}` },
   { key: "turn", label: "Turn Portal", href: (id: string) => `/campaigns/${id}/turn` },
   { key: "production", label: "Production", href: (id: string) => `/campaigns/${id}/production` },
   { key: "battle", label: "Battle", href: (id: string) => `/campaigns/${id}/battle` },
   { key: "rulebook", label: "Rulebook + Ask", href: (id: string) => `/campaigns/${id}/rulebook` },
+  { key: "war-room", label: "Game Stats", href: (id: string) => `/campaigns/${id}` },
 ];
 
 export default function CampaignNav({

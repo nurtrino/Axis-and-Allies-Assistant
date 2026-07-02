@@ -32,6 +32,7 @@ export default async function TurnPage({
       nationStates: { include: { pending: true, stocks: true } },
       combatMoves: { orderBy: { createdAt: "asc" } },
       movements: { orderBy: { createdAt: "asc" } },
+      breakthroughs: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!campaign) notFound();
@@ -115,7 +116,7 @@ export default async function TurnPage({
           <Link href={`/campaigns/${id}${asQuery}`} className="label hover:text-foreground">
             ← {campaign.name}
           </Link>
-          <h1 className="text-2xl font-semibold tracking-tight mt-1">Turn Portal</h1>
+          <h1 className="mt-1">Turn Portal</h1>
           <p className="label mt-1">
             Round {currentNum} ·{" "}
             {campaign.scenario === "Y1941" ? "1941" : "1942"} scenario
@@ -125,68 +126,43 @@ export default async function TurnPage({
 
       <CampaignNav id={id} asQuery={asQuery} active="turn" />
 
-      {/* Turn order rail */}
-      <div className="panel p-4">
-        <div className="label mb-2">Turn order — Round {currentNum}</div>
-        <div className="flex flex-wrap gap-2">
-          {TURN_ORDER.map((key) => {
-            const p = POWERS_BY_KEY[key];
-            const isActive = key === activeKey;
-            return (
-              <form action={setActivePower} key={key}>
-                <input type="hidden" name="campaignId" value={id} />
-                <input type="hidden" name="powerKey" value={key} />
-                <button
-                  type="submit"
-                  className="flex items-center gap-2 rounded border px-2.5 py-1.5"
-                  style={{
-                    borderColor: isActive ? p.color : "var(--border)",
-                    background: isActive ? "var(--surface-2)" : "transparent",
-                    opacity: isActive ? 1 : 0.7,
-                  }}
-                  title={`Hand the turn to ${p.name}`}
-                >
-                  <Image src={p.flag} alt="" width={20} height={13} className="rounded-sm border border-border" />
-                  <span className="text-sm font-medium" style={{ color: isActive ? p.color : "var(--muted)" }}>
-                    {p.name}
-                  </span>
-                  <span className="label">{controllerByPower.get(key) ?? "—"}</span>
-                </button>
-              </form>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Active power banner */}
-      <div
-        className="panel p-4 flex flex-wrap items-center justify-between gap-3"
-        style={{ borderColor: activePower.color }}
-      >
-        <div className="flex items-center gap-3">
-          <Image
-            src={activePower.flag}
-            alt=""
-            width={34}
-            height={22}
-            className="rounded-sm border border-border"
-          />
-          <div>
-            <div className="text-lg font-semibold" style={{ color: activePower.color }}>
-              {activePower.name}&apos;s turn
-            </div>
-            <div className="label">
-              {(activePower.coalition as Coalition) === "AXIS" ? "Axis" : "Allies"}
-              {controller ? ` · commander ${controller}` : ""} · Phase {activePhase} —{" "}
-              {PHASE_BY_N[activePhase]?.name}
+      {/* Command banner — whose turn it is */}
+      <div className="command-banner doc-corners">
+        <span className="stripe" style={{ background: activePower.color }} />
+        <span className="watermark" style={{ color: activePower.color }}>
+          {activePower.name}
+        </span>
+        <div className="relative flex flex-wrap items-center justify-between gap-4 p-5 pl-6">
+          <div className="flex items-center gap-4">
+            <Image
+              src={activePower.flag}
+              alt=""
+              width={52}
+              height={34}
+              className="rounded-sm border border-border shadow-lg"
+            />
+            <div>
+              <div className="display text-3xl leading-none" style={{ color: activePower.color }}>
+                {activePower.name}
+              </div>
+              <div className="prose-quiet mt-1">
+                {(activePower.coalition as Coalition) === "AXIS" ? "Axis" : "Allies"}
+                {controller ? <> · Commander <span style={{ color: "var(--foreground)" }}>{controller}</span></> : null}
+              </div>
             </div>
           </div>
-        </div>
-        {!isMyTurn && selected && (
-          <div className="label" style={{ color: "var(--muted)" }}>
-            You are {selected.name}. Hand off above when it&apos;s your turn.
+          <div className="text-right">
+            <div className="label">Now in</div>
+            <div className="font-medium" style={{ color: "var(--accent)" }}>
+              Phase {activePhase} — {PHASE_BY_N[activePhase]?.name}
+            </div>
+            {!isMyTurn && selected && (
+              <div className="prose-quiet mt-1">
+                You are {selected.name} — hand off below when it&apos;s your turn.
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <TurnPortal
@@ -194,6 +170,7 @@ export default async function TurnPage({
         roundNumber={currentNum}
         activePhase={activePhase}
         includeResearch={campaign.includeResearch}
+        combatResolution={campaign.combatResolution}
         power={{
           key: activePower.key,
           name: activePower.name,
@@ -210,7 +187,43 @@ export default async function TurnPage({
         powers={allPowers}
         combatOrders={combatOrders}
         movements={movements}
+        breakthroughs={campaign.breakthroughs.map((b) => ({
+          nation: b.nation,
+          techKey: b.techKey,
+          roundNumber: b.roundNumber,
+        }))}
       />
+
+      {/* Hand-off rail — jump the turn to another power (corrections / catch-up) */}
+      <div className="panel px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="label shrink-0">Turn order</span>
+          {TURN_ORDER.map((key, i) => {
+            const p = POWERS_BY_KEY[key];
+            const isActive = key === activeKey;
+            return (
+              <form action={setActivePower} key={key} className="flex items-center gap-3">
+                {i > 0 && <span style={{ color: "var(--faint)" }}>→</span>}
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-sm transition-colors"
+                  style={{
+                    border: `1px solid ${isActive ? p.color : "transparent"}`,
+                    background: isActive ? "var(--surface-2)" : "transparent",
+                    color: isActive ? p.color : "var(--muted)",
+                  }}
+                  title={`Hand the turn to ${p.name} (${controllerByPower.get(key) ?? "unassigned"})`}
+                >
+                  <Image src={p.flag} alt="" width={18} height={12} className="rounded-[2px] border border-border" />
+                  {p.name}
+                </button>
+                <input type="hidden" name="campaignId" value={id} />
+                <input type="hidden" name="powerKey" value={key} />
+              </form>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

@@ -82,7 +82,7 @@ export default async function ProductionPage({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{campaign.name}</h1>
+        <h1 >{campaign.name}</h1>
         <p className="label mt-1">
           National Production Chart · Round {currentNum} ·{" "}
           {campaign.scenario === "Y1941" ? "1941" : "1942"} scenario

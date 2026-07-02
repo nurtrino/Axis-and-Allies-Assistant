@@ -1,23 +1,45 @@
 @import "tailwindcss";
 
+/* ────────────────────────────────────────────────────────────────────────────
+   WAR LEDGER — "Map Room" design system
+   A 1940s operations-room aesthetic: olive-charcoal table, amber lamp light,
+   antique brass, documents pinned to the board. Display type is poster/stencil
+   (Staatliches); body is IBM Plex Sans; ledger figures are IBM Plex Mono.
+   ──────────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --background: #0b0f14;
-  --surface: #121922;
-  --surface-2: #1a2330;
-  --border: #243142;
-  --foreground: #e6edf3;
-  --muted: #8a9bb0;
-  --accent: #d4a017; /* brass */
-  --axis: #d4773a;
-  --allies: #4f93c4;
-  --good: #3fb27f;
-  --bad: #d65a5a;
+  /* Surfaces — warm olive-charcoal, not blue-slate */
+  --background: #141610;
+  --surface: #1c1f17;
+  --surface-2: #262a1f;
+  --surface-3: #31362a;
+  --border: #3a3f2f;
+  --border-strong: #4d5340;
+
+  /* Ink */
+  --foreground: #e9e4d3; /* aged paper white */
+  --muted: #97927d;
+  --faint: #6a6656;
+
+  /* Brass — the lamp light of the room */
+  --accent: #c9a227;
+  --accent-bright: #e8c14b;
+  --accent-dim: #8a6f1c;
+  --accent-ink: #191203;
+
+  /* Factions & semantics */
+  --axis: #c96f3b;
+  --allies: #6f9fc4;
+  --good: #7ba05b;
+  --bad: #c25e5e;
+  --bad-bg: rgba(194, 94, 94, 0.14);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border: var(--border);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
@@ -26,77 +48,316 @@
   --color-allies: var(--allies);
   --color-good: var(--good);
   --color-bad: var(--bad);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
 }
 
 body {
   background:
-    radial-gradient(1200px 600px at 80% -10%, #16202c 0%, transparent 60%),
+    /* amber lamp glow from the top */
+    radial-gradient(1100px 500px at 50% -12%, rgba(201, 162, 39, 0.07) 0%, transparent 60%),
+    /* deep table vignette */
+    radial-gradient(1600px 900px at 50% 110%, #0d0f0a 0%, transparent 55%),
     var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-plex-sans), system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
 }
 
-/* Reusable building blocks */
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+/* Film-grain so large dark areas don't read as flat vector fill. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.05;
+  background-image: url("data:image/png;base64,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");
+  background-size: 64px 64px;
 }
+
+/* Display face for headings and command text. */
+.display,
+h1,
+h2 {
+  font-family: var(--font-display), var(--font-plex-sans), sans-serif;
+  letter-spacing: 0.035em;
+  font-weight: 400;
+}
+h1 {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+/* ── Documents (panels) ── */
+.panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(233, 228, 211, 0.025) 0%, transparent 12%),
+    var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow:
+    0 1px 0 rgba(233, 228, 211, 0.04) inset,
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* Header band across the top of a document. */
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border-radius: 4px 4px 0 0;
+}
+.panel-header .doc-no {
+  font-family: var(--font-plex-mono), monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Blueprint corner ticks on featured documents. */
+.doc-corners::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--border-strong), var(--border-strong)) top left / 14px 1px,
+    linear-gradient(var(--border-strong), var(--border-strong)) top left / 1px 14px,
+    linear-gradient(var(--border-strong), var(--border-strong)) top right / 14px 1px,
+    linear-gradient(var(--border-strong), var(--border-strong)) top right / 1px 14px,
+    linear-gradient(var(--border-strong), var(--border-strong)) bottom left / 14px 1px,
+    linear-gradient(var(--border-strong), var(--border-strong)) bottom left / 1px 14px,
+    linear-gradient(var(--border-strong), var(--border-strong)) bottom right / 14px 1px,
+    linear-gradient(var(--border-strong), var(--border-strong)) bottom right / 1px 14px;
+  background-repeat: no-repeat;
+}
+
+/* ── Type utilities ── */
 .label {
-  font-family: var(--font-mono), monospace;
+  font-family: var(--font-plex-mono), monospace;
   font-size: 0.6875rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 .stat {
-  font-family: var(--font-mono), monospace;
+  font-family: var(--font-plex-mono), monospace;
   font-variant-numeric: tabular-nums;
 }
+.prose-quiet {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* ── Fields ── */
 .field {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 0.375rem;
+  border-radius: 3px;
   padding: 0.45rem 0.6rem;
   color: var(--foreground);
   width: 100%;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .field:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.12);
 }
+
+/* ── Buttons ── */
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-family: var(--font-mono), monospace;
+  justify-content: center;
+  gap: 0.45rem;
+  font-family: var(--font-plex-mono), monospace;
   font-size: 0.75rem;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding: 0.5rem 0.9rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border);
+  padding: 0.5rem 0.95rem;
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
   background: var(--surface-2);
   color: var(--foreground);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.06s ease;
 }
 .btn:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--surface-3);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 .btn-primary {
-  background: var(--accent);
-  color: #1a1300;
-  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  color: var(--accent-ink);
+  border-color: var(--accent-dim);
   font-weight: 600;
+  box-shadow:
+    0 1px 0 rgba(255, 240, 190, 0.4) inset,
+    0 2px 8px rgba(201, 162, 39, 0.25);
 }
 .btn-primary:hover {
-  filter: brightness(1.08);
+  background: linear-gradient(180deg, #f0cc5e, var(--accent-bright));
+  border-color: var(--accent);
+}
+.btn-danger-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.btn-danger-ghost:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: var(--bad-bg);
 }
 
-/* ── Battle simulator animations ── */
+/* ── Phase track (Turn Portal) ── */
+.phase-track {
+  display: flex;
+  align-items: flex-start;
+}
+.phase-node {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  min-width: 0;
+}
+.phase-node:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+/* connector line segments */
+.phase-node::before,
+.phase-node::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  height: 1px;
+  width: 50%;
+  background: var(--border-strong);
+}
+.phase-node::before {
+  left: 0;
+}
+.phase-node::after {
+  right: 0;
+}
+.phase-node:first-child::before,
+.phase-node:last-child::after {
+  display: none;
+}
+.phase-node[data-done="true"]::before,
+.phase-node[data-done="true"]::after,
+.phase-node[data-active="true"]::before {
+  background: var(--accent-dim);
+}
+.phase-dot {
+  position: relative;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-plex-mono), monospace;
+  font-size: 0.72rem;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  transition: all 0.15s ease;
+}
+.phase-node[data-done="true"] .phase-dot {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+  background: var(--surface);
+}
+.phase-node[data-active="true"] .phase-dot {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  color: var(--accent-ink);
+  font-weight: 700;
+  box-shadow: 0 0 0 4px rgba(201, 162, 39, 0.15), 0 0 14px rgba(201, 162, 39, 0.35);
+}
+.phase-name {
+  font-family: var(--font-plex-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  text-align: center;
+  line-height: 1.25;
+}
+.phase-node[data-active="true"] .phase-name {
+  color: var(--accent);
+}
+.phase-node[data-done="true"] .phase-name {
+  color: var(--muted);
+}
+
+/* ── Command banner (active power) ── */
+.command-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.command-banner .stripe {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+}
+.command-banner .watermark {
+  position: absolute;
+  right: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-display), sans-serif;
+  font-size: 7rem;
+  line-height: 1;
+  opacity: 0.05;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Dice ── */
+.die-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 4px;
+  font-family: var(--font-plex-mono), monospace;
+  font-weight: 600;
+}
+
+/* ── Battle simulator animations (unchanged) ── */
 @keyframes hitFlash {
   0%   { opacity: 0; transform: translate(-50%, 14px) scale(0.6); }
   18%  { opacity: 1; transform: translate(-50%, -2px) scale(1.18); }
@@ -112,7 +373,6 @@ body {
 }
 .unit-dead { animation: unitDie 0.5s ease forwards; }
 
-/* Cinematic battle intro title card (plays during the opening camera pan). */
 .battle-intro-card {
   position: absolute;
   inset: 0;
@@ -121,12 +381,10 @@ body {
   justify-content: center;
   pointer-events: none;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.9);
-  /* Soft dark vignette behind the text so it reads as a steady card over the
-     moving 3D scene rather than floating, flickery type. */
   background: radial-gradient(
     60% 45% at 50% 50%,
-    rgba(8, 11, 15, 0.6) 0%,
-    rgba(8, 11, 15, 0) 70%
+    rgba(10, 11, 8, 0.6) 0%,
+    rgba(10, 11, 8, 0) 70%
   );
   animation: battleIntroCard 4.6s ease-in-out forwards;
 }

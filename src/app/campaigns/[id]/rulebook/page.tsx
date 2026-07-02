@@ -29,7 +29,7 @@ export default async function RulebookPage({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{campaign.name}</h1>
+        <h1 >{campaign.name}</h1>
         <p className="label mt-1">
           Rulebook &amp; game-aware assistant
           {selected ? ` · ${selected.name}` : ""}

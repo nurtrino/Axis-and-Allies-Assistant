@@ -25,13 +25,15 @@ export interface Phase {
   implemented: boolean;
 }
 
-// Active phases. Combat Move (3), Noncombat Move (5) and Mobilize (6) were
-// retired as redundant; their phase numbers are intentionally NOT reused so any
-// existing campaign data / activePhase value stays valid.
+// The full A&A turn, walked phase-by-phase as a guided sequence. Phase 1 (R&D)
+// is shown only when the campaign enables research.
 export const PHASES: Phase[] = [
-  { n: 1, key: "research", name: "Research & Development", short: "R&D", optional: true, implemented: false },
+  { n: 1, key: "research", name: "Research & Development", short: "R&D", optional: true, implemented: true },
   { n: 2, key: "purchase", name: "Purchase Units", short: "Purchase", implemented: true },
+  { n: 3, key: "combatmove", name: "Combat Move", short: "Combat Move", implemented: true },
   { n: 4, key: "combat", name: "Conduct Combat", short: "Conduct Combat", implemented: true },
+  { n: 5, key: "noncombat", name: "Noncombat Move", short: "Noncombat", implemented: true },
+  { n: 6, key: "mobilize", name: "Mobilize New Units", short: "Mobilize", implemented: true },
   { n: 7, key: "income", name: "Collect Income", short: "Income", implemented: true },
 ];
 

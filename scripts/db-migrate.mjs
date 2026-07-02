@@ -13,7 +13,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 
 const DATA_DIR = process.env.PGLITE_DATA ?? "./.pgdata";
 const MIGRATIONS_DIR = "prisma/migrations";
@@ -51,10 +51,13 @@ for (const name of names) {
   console.log(`▸ applying ${name}…`);
   const sql = readFileSync(join(MIGRATIONS_DIR, name, "migration.sql"), "utf8");
   await db.exec(sql);
+  // checksum = sha256(migration.sql), matching Prisma — required NOT NULL when
+  // the ledger was first created by `prisma migrate deploy`.
+  const checksum = createHash("sha256").update(sql).digest("hex");
   await db.query(
-    `insert into "_prisma_migrations" (id, migration_name, finished_at, applied_steps_count)
-     values ($1, $2, now(), 1)`,
-    [randomUUID(), name],
+    `insert into "_prisma_migrations" (id, checksum, migration_name, finished_at, applied_steps_count)
+     values ($1, $2, $3, now(), 1)`,
+    [randomUUID(), checksum, name],
   );
   applan++;
 }

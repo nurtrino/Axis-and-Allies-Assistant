@@ -53,7 +53,7 @@ export default function BombingRaid({
   function run() {
     if (!audioRef.current) {
       audioRef.current = new Audio("/sounds/dice-roll.mp3");
-      audioRef.current.volume = 0.55;
+      audioRef.current.volume = 0.38;
     }
     try {
       audioRef.current.currentTime = 0;

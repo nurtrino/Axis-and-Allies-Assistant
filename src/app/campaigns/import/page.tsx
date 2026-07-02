@@ -10,7 +10,7 @@ export default function ImportPage() {
         <Link href="/campaigns" className="label hover:text-foreground">
           ← Campaigns
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight mt-1">
+        <h1 className="mt-1">
           Import / Load Game
         </h1>
         <p className="label mt-1">

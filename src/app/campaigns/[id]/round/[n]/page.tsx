@@ -73,7 +73,7 @@ export default async function RoundPage({
           ← {campaign.name}
         </Link>
         <div className="flex items-center justify-between mt-1">
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 >
             Round {number}
             {number < maxNumber && (
               <span className="label ml-2 align-middle">· editing past round</span>

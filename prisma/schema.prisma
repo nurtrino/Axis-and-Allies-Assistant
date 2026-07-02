@@ -28,6 +28,10 @@ model Campaign {
   // Whether this game uses Research & Development. When false, the R&D
   // breakthrough columns are hidden from the Production board.
   includeResearch Boolean  @default(true)
+  // How combat moves flow into battles, chosen at setup:
+  // "DECLARE_THEN_FIGHT" (declare every combat move, then fight all battles) |
+  // "FIGHT_EACH" (resolve each declared move straight into its battle).
+  combatResolution String  @default("DECLARE_THEN_FIGHT")
   // "ACTIVE" | "VICTORY" | "DEFEAT"
   status          String   @default("ACTIVE")
 
@@ -50,6 +54,23 @@ model Campaign {
   nationStates NationState[]
   combatMoves CombatMoveOrder[]
   movements   Movement[]
+  breakthroughs Breakthrough[]
+}
+
+// R&D breakthroughs a power has unlocked (Phase 1). One row per tech so the
+// app remembers chart state between sessions — a tracking pain the physical
+// game leaves to players.
+model Breakthrough {
+  id          String   @id @default(cuid())
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId  String
+  nation      String
+  techKey     String // key into RESEARCH_TECHS in lib/research.ts
+  roundNumber Int
+  createdAt   DateTime @default(now())
+
+  @@unique([campaignId, nation, techKey])
+  @@index([campaignId])
 }
 
 // Live, cross-round state for a power: its IPC treasury and unit inventory.
